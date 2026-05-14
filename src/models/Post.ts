@@ -1,0 +1,47 @@
+import mongoose, { Document, Schema } from 'mongoose';
+import { PostPlatform, PostLanguage } from '../types';
+
+export interface IPost extends Document {
+  externalId?: string;
+  platform: PostPlatform;
+  content: string;
+  author?: string;
+  url?: string;
+  language: PostLanguage;
+  postedAt?: Date;
+  ingestedAt: Date;
+  metadata?: Record<string, unknown>;
+  isProcessed: boolean;
+}
+
+const postSchema = new Schema<IPost>(
+  {
+    externalId: { type: String },
+    platform: {
+      type: String,
+      enum: Object.values(PostPlatform),
+      required: true,
+    },
+    content: { type: String, required: true },
+    author: { type: String },
+    url: { type: String },
+    language: {
+      type: String,
+      enum: Object.values(PostLanguage),
+      required: true,
+    },
+    postedAt: { type: Date },
+    ingestedAt: { type: Date, default: Date.now },
+    metadata: { type: Schema.Types.Mixed },
+    isProcessed: { type: Boolean, default: false },
+  },
+  { timestamps: true }
+);
+
+postSchema.index({ externalId: 1, platform: 1 }, { unique: true, partialFilterExpression: { externalId: { $exists: true, $ne: null } } });
+postSchema.index({ ingestedAt: -1 });
+postSchema.index({ language: 1 });
+postSchema.index({ platform: 1 });
+postSchema.index({ content: 'text' }, { default_language: 'none', language_override: 'text_lang' });
+
+export const Post = mongoose.model<IPost>('Post', postSchema);
