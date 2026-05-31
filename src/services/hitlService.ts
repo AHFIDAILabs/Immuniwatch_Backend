@@ -1,4 +1,4 @@
-import { FilterQuery } from 'mongoose';
+import mongoose, { FilterQuery } from 'mongoose';
 
 import { config } from '../config';
 import { AuditLog } from '../models/AuditLog';
@@ -13,6 +13,16 @@ import {
 } from '../types';
 import { AppError } from '../utils/AppError';
 import { submitAnalystFeedback } from './classificationService';
+
+// ── Shared populate helper ─────────────────────────────────────────────────────
+// Always return a fully-populated review so the frontend can render content
+// in the DispatchModal without a second fetch.
+
+async function populateReview(reviewId: mongoose.Types.ObjectId | string) {
+  return HITLReview.findById(reviewId)
+    .populate('postId classificationId')
+    .lean();
+}
 
 // ── List reviews ──────────────────────────────────────────────────────────────
 
@@ -47,14 +57,20 @@ export async function listReviews(opts: {
 
 // ── Approve ───────────────────────────────────────────────────────────────────
 
-export async function approveReview(reviewId: string, analystId: string, analystRole: string) {
+export async function approveReview(
+  reviewId:    string,
+  analystId:   string,
+  analystRole: string,
+  reviewerNote?: string,
+) {
   const review = await HITLReview.findById(reviewId);
-  if (!review)                              throw new AppError(404, 'NOT_FOUND', 'Review not found');
-  if (review.status !== HITLStatus.PENDING) throw new AppError(400, 'INVALID_STATE', 'Review already actioned');
+  if (!review)                              throw new AppError(404, 'NOT_FOUND',      'Review not found');
+  if (review.status !== HITLStatus.PENDING) throw new AppError(400, 'INVALID_STATE',  'Review has already been actioned');
 
   review.status     = HITLStatus.APPROVED;
-  review.reviewedBy = analystId as unknown as typeof review.reviewedBy;
+  review.reviewedBy = new mongoose.Types.ObjectId(analystId) as unknown as typeof review.reviewedBy;
   review.reviewedAt = new Date();
+  if (reviewerNote) review.reviewerNote = reviewerNote;
   await review.save();
 
   await AuditLog.create({
@@ -62,9 +78,10 @@ export async function approveReview(reviewId: string, analystId: string, analyst
     action:       AuditAction.HITL_APPROVE,
     resourceType: 'HITLReview',
     resourceId:   review._id.toString(),
+    newValue:     { reviewerNote },
   });
 
-  return review;
+  return populateReview(review._id);
 }
 
 // ── Override (relabel) ────────────────────────────────────────────────────────
@@ -75,18 +92,21 @@ export async function overrideReview(
   analystRole:    string,
   newLabel:       ClassificationLabel,
   editedResponse: string,
+  reviewerNote?:  string,
 ) {
   const review = await HITLReview.findById(reviewId).populate('classificationId');
   if (!review) throw new AppError(404, 'NOT_FOUND', 'Review not found');
+  if (review.status !== HITLStatus.PENDING) throw new AppError(400, 'INVALID_STATE', 'Review has already been actioned');
 
   const cls = review.classificationId as unknown as InstanceType<typeof Classification>;
   if (!cls)  throw new AppError(400, 'INVALID_STATE', 'Review has no classification');
 
-  review.status         = HITLStatus.OVERRIDDEN;
-  review.reviewedBy     = analystId as unknown as typeof review.reviewedBy;
-  review.reviewedAt     = new Date();
-  review.overriddenLabel = newLabel;
+  review.status           = HITLStatus.OVERRIDDEN;
+  review.reviewedBy       = new mongoose.Types.ObjectId(analystId) as unknown as typeof review.reviewedBy;
+  review.reviewedAt       = new Date();
+  review.overriddenLabel  = newLabel;
   review.approvedResponse = editedResponse;
+  if (reviewerNote) review.reviewerNote = reviewerNote;
   await review.save();
 
   await Classification.findByIdAndUpdate(cls._id, { label: newLabel });
@@ -100,21 +120,28 @@ export async function overrideReview(
     resourceType: 'HITLReview',
     resourceId:   review._id.toString(),
     oldValue:     { label: cls.label },
-    newValue:     { label: newLabel, approvedResponse: editedResponse },
+    newValue:     { label: newLabel, approvedResponse: editedResponse, reviewerNote },
   });
 
-  return review;
+  return populateReview(review._id);
 }
 
 // ── Reject ────────────────────────────────────────────────────────────────────
 
-export async function rejectReview(reviewId: string, analystId: string, analystRole: string) {
+export async function rejectReview(
+  reviewId:    string,
+  analystId:   string,
+  analystRole: string,
+  reviewerNote?: string,
+) {
   const review = await HITLReview.findById(reviewId);
   if (!review) throw new AppError(404, 'NOT_FOUND', 'Review not found');
+  if (review.status !== HITLStatus.PENDING) throw new AppError(400, 'INVALID_STATE', 'Review has already been actioned');
 
   review.status     = HITLStatus.REJECTED;
-  review.reviewedBy = analystId as unknown as typeof review.reviewedBy;
+  review.reviewedBy = new mongoose.Types.ObjectId(analystId) as unknown as typeof review.reviewedBy;
   review.reviewedAt = new Date();
+  if (reviewerNote) review.reviewerNote = reviewerNote;
   await review.save();
 
   // Submit negative training signal
@@ -125,7 +152,8 @@ export async function rejectReview(reviewId: string, analystId: string, analystR
     action:       AuditAction.HITL_REJECT,
     resourceType: 'HITLReview',
     resourceId:   review._id.toString(),
+    newValue:     { reviewerNote },
   });
 
-  return review;
+  return populateReview(review._id);
 }

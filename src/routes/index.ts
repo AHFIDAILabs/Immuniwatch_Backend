@@ -13,6 +13,7 @@ import trendsRoutes      from './trendsRoutes';
 import dispatchRoutes    from './dispatchRoutes';
 import statsRoutes       from './statsRoutes';
 import submitRoutes      from './submitRoutes';
+import settingsRoutes    from './settingsRoutes';
 
 const router = Router();
 
@@ -29,5 +30,6 @@ router.use('/trends',       trendsRoutes);
 router.use('/dispatch',     dispatchRoutes);
 router.use('/stats',        statsRoutes);
 router.use('/submit',       submitRoutes);   // public — no authenticate middleware
+router.use('/settings',     settingsRoutes);
 
 export default router;

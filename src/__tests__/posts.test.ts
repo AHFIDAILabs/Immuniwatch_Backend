@@ -77,7 +77,7 @@ async function seedAndLogin(app: express.Application) {
   user.set('password', 'Password1!');
   await user.save();
   const res = await request(app).post('/auth/login').send({ email: 'analyst@test.com', password: 'Password1!' });
-  return (res.headers['set-cookie'] as string[]).join('; ');
+  return (res.headers['set-cookie'] as unknown as string[]).join('; ');
 }
 
 const VALID_POST = { content: 'Jigi ta causes infertility', platform: 'twitter', language: 'ha' };

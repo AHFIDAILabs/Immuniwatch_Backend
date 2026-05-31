@@ -5,7 +5,7 @@
  * so a Kafka outage never halts post ingestion.
  */
 
-import { Kafka, Producer, RecordMetadata } from 'kafkajs';
+import { Kafka, Producer, RecordMetadata, logLevel as KafkaLogLevel } from 'kafkajs';
 
 import { config } from '../config';
 import {
@@ -45,9 +45,13 @@ export async function startKafkaProducer(): Promise<void> {
   const kafka = new Kafka({
     clientId: config.kafka.clientId,
     brokers:  config.kafka.brokers,
+    // Only forward ERROR-level messages — KafkaJS retries produce hundreds of
+    // DEBUG lines that flood the console when no broker is reachable.
+    logLevel:   KafkaLogLevel.ERROR,
     logCreator: () => (entry) => {
+      if (entry.level > KafkaLogLevel.ERROR) return;
       const { message, ...extra } = entry.log;
-      logger.debug(`[kafka] ${message}`, extra);
+      logger.error(`[kafka] ${message}`, extra);
     },
   });
 
@@ -56,8 +60,13 @@ export async function startKafkaProducer(): Promise<void> {
     maxInFlightRequests: 1,
   });
 
-  await producer.connect();
-  logger.info('Kafka producer connected');
+  try {
+    await producer.connect();
+    logger.info('Kafka producer connected');
+  } catch (err) {
+    logger.warn(`Kafka producer could not connect — running without Kafka: ${(err as Error).message}`);
+    producer = null;
+  }
 }
 
 export async function stopKafkaProducer(): Promise<void> {

@@ -11,14 +11,14 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 // ── Test environment ──────────────────────────────────────────────────────────
 
 // Set env vars before any module import
-process.env.ML_SERVICE_URL       = 'http://ml-service-test:8000';
-process.env.ML_API_KEY           = 'test-api-key-min-32-chars-padding';
-process.env.ML_MOCK_MODE         = 'false';
-process.env.KAFKA_ENABLED        = 'false';
-process.env.JWT_SECRET           = 'test-jwt-secret-min-32-chars-padding!!';
-process.env.MONGODB_URI          = 'mongodb://localhost:27017/test'; // overridden below
+process.env.ML_SERVICE_URL        = 'http://ml-service-test:8000';
+process.env.ML_API_KEY            = 'test-api-key-min-32-chars-padding';
+process.env.ML_MOCK_MODE          = 'false';
+process.env.KAFKA_ENABLED         = 'false';
+process.env.JWT_SECRET            = 'test-jwt-secret-min-32-chars-padding!!';
+process.env.MONGODB_URI           = 'mongodb://localhost:27017/test'; // overridden below
 process.env.CLOUDINARY_CLOUD_NAME = 'test';
-process.env.CLOUDINARY_API_KEY   = 'test';
+process.env.CLOUDINARY_API_KEY    = 'test';
 process.env.CLOUDINARY_API_SECRET = 'test';
 
 // ── Mongoose models (must come after env is set) ──────────────────────────────
@@ -35,13 +35,13 @@ import { MLLabel, MLLanguage } from '../types/ml.types';
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 jest.mock('../utils/kafkaProducer', () => ({
-  publishRawPost:         jest.fn().mockResolvedValue(undefined),
-  publishClassified:      jest.fn().mockResolvedValue(undefined),
-  publishFeedback:        jest.fn().mockResolvedValue(undefined),
-  publishRetrainTrigger:  jest.fn().mockResolvedValue(undefined),
-  publishEmbeddingRequest:jest.fn().mockResolvedValue(undefined),
-  startKafkaProducer:     jest.fn().mockResolvedValue(undefined),
-  stopKafkaProducer:      jest.fn().mockResolvedValue(undefined),
+  publishRawPost:          jest.fn().mockResolvedValue(undefined),
+  publishClassified:       jest.fn().mockResolvedValue(undefined),
+  publishFeedback:         jest.fn().mockResolvedValue(undefined),
+  publishRetrainTrigger:   jest.fn().mockResolvedValue(undefined),
+  publishEmbeddingRequest: jest.fn().mockResolvedValue(undefined),
+  startKafkaProducer:      jest.fn().mockResolvedValue(undefined),
+  stopKafkaProducer:       jest.fn().mockResolvedValue(undefined),
   TOPICS: {
     RAW_POSTS:         'iw.raw-posts',
     CLASSIFIED_POSTS:  'iw.classified-posts',
@@ -100,10 +100,28 @@ function mlClassifyResponse(overrides: Partial<object> = {}) {
     confidence:    0.91,
     entropy:       0.12,
     model_version: 'v1.4.2',
-    alternatives:  [{ label: MLLabel.DISINFORMATION, confidence: 0.07 }],
+    alternatives:  [{ label: MLLabel.FACTUAL, confidence: 0.07 }],
     processing_ms: 42,
     kb_evidence:   [],
     fallback:      false,
+    ...overrides,
+  };
+}
+
+function mlMetricsResponse(overrides: Partial<object> = {}) {
+  return {
+    model_version: 'v1.4.3',
+    overall: {
+      macro_f1:       0.861,
+      recall:         0.842,
+      precision:      0.878,
+      latency_p95_ms: 120,
+    },
+    by_language: {
+      en: { macro_f1: 0.88, psi: 0.05, sample_count: 1200 },
+      ha: { macro_f1: 0.81, psi: 0.08, sample_count: 800 },
+    },
+    computed_at: new Date().toISOString(),
     ...overrides,
   };
 }
@@ -128,6 +146,44 @@ describe('classifyPost — happy path', () => {
 
     const dbCls = await Classification.findOne({ postId: post._id });
     expect(dbCls).not.toBeNull();
+  });
+});
+
+describe('classifyPost — factual auto-approval', () => {
+  it('skips HITLReview when confidence >= 0.92 and label is factual', async () => {
+    const post = await seedPost();
+
+    nock(ML_URL)
+      .post('/embed').reply(200, { embedding: new Array(768).fill(0.1), model: 'e5', processing_ms: 5 })
+      .post('/classify').reply(200, {
+        ...mlClassifyResponse({ label: MLLabel.FACTUAL, confidence: 0.95, entropy: 0.04 }),
+        post_id: post._id.toString(),
+      });
+
+    const { classifyPost } = await import('../services/classificationService');
+    const result = await classifyPost(post._id.toString());
+
+    expect(result.classification.label).toBe(ClassificationLabel.FACTUAL);
+    expect(result.hitlReview).toBeNull();
+  });
+});
+
+describe('classifyPost — elevated entropy promotes to HIGH priority', () => {
+  it('assigns HIGH priority HITL when entropy > 0.45 even below highPriorityThreshold', async () => {
+    const post = await seedPost();
+
+    nock(ML_URL)
+      .post('/embed').reply(200, { embedding: new Array(768).fill(0.1), model: 'e5', processing_ms: 5 })
+      .post('/classify').reply(200, {
+        ...mlClassifyResponse({ confidence: 0.78, entropy: 0.52 }),
+        post_id: post._id.toString(),
+      });
+
+    const { classifyPost } = await import('../services/classificationService');
+    const result = await classifyPost(post._id.toString());
+
+    expect(result.hitlReview).not.toBeNull();
+    expect(result.hitlReview!.priority).toBe(HITLPriority.HIGH);
   });
 });
 
@@ -225,29 +281,37 @@ describe('submitAnalystFeedback', () => {
   });
 });
 
-describe('Kafka consumer — iw.retrain-complete', () => {
-  it('upserts ModelMetrics and broadcasts MODEL_UPDATE WebSocket event', async () => {
-    const payload = {
-      model_version:    'v1.4.3',
-      overall_macro_f1: 0.861,
-      macro_f1_by_lang: { en: 0.88, ha: 0.81 },
-      promoted:         true,
-      timestamp:        new Date().toISOString(),
-    };
+describe('modelHealthService — metrics poll', () => {
+  it('fetches live metrics, upserts ModelMetrics with renamed fields', async () => {
+    nock(ML_URL).get('/metrics').reply(200, mlMetricsResponse());
 
-    // Simulate the handler directly (no real Kafka needed)
-    const { handleRetrainCompleteForTest } = await import('../utils/kafkaConsumer');
-    if (typeof handleRetrainCompleteForTest === 'function') {
-      await handleRetrainCompleteForTest(payload);
+    const { getMetrics } = await import('../services/modelHealthService');
+    await getMetrics();
 
-      const metrics = await ModelMetrics.findOne({ modelVersion: 'v1.4.3' });
-      expect(metrics).not.toBeNull();
-      expect(metrics!.macroF1).toBeCloseTo(0.861);
-      expect(mockBroadcast).toHaveBeenCalledWith('MODEL_UPDATE', expect.anything());
-    } else {
-      // Handler not exported for test — verify through Kafka message simulation
-      console.log('⚠ handleRetrainCompleteForTest not exported — skipping direct test');
-    }
+    const metrics = await ModelMetrics.findOne({ modelVersion: 'v1.4.3' });
+    expect(metrics).not.toBeNull();
+    expect(metrics!.macroF1).toBeCloseTo(0.861);
+    expect(metrics!.inferenceP95ms).toBe(120);
+  });
+});
+
+describe('modelHealthService — checkPsiDrift', () => {
+  it('creates HIGH severity PSI_DRIFT Alert when PSI exceeds threshold', async () => {
+    nock(ML_URL).get('/metrics').reply(200, mlMetricsResponse({
+      by_language: {
+        yo: { macro_f1: 0.77, psi: 0.25, sample_count: 600 }, // 0.25 > 0.2 threshold
+        en: { macro_f1: 0.88, psi: 0.05, sample_count: 1200 },
+      },
+    }));
+
+    const { checkPsiDrift } = await import('../services/modelHealthService');
+    await checkPsiDrift();
+
+    const alert = await Alert.findOne({ triggerType: AlertTriggerType.PSI_DRIFT });
+    expect(alert).not.toBeNull();
+    expect(alert!.severity).toBe(AlertSeverity.HIGH);
+    expect(alert!.affectedLanguage).toBe('yo');
+    expect(mockBroadcast).toHaveBeenCalledWith('MODEL_DRIFT_ALERT', expect.anything());
   });
 });
 
@@ -295,27 +359,5 @@ describe('searchSimilar — fallback to text search', () => {
 
     // Falls back to text search — should return the Jigi ta doc
     expect(results.length).toBeGreaterThan(0);
-  });
-});
-
-describe('Kafka consumer — iw.model-drift-alert', () => {
-  it('creates HIGH severity PSI_DRIFT Alert', async () => {
-    const { handleModelDriftAlertForTest } = await import('../utils/kafkaConsumer');
-    if (typeof handleModelDriftAlertForTest !== 'function') {
-      console.log('⚠ handleModelDriftAlertForTest not exported — skipping');
-      return;
-    }
-
-    await handleModelDriftAlertForTest({
-      language:  MLLanguage.YO,
-      psi:       0.22,
-      threshold: 0.20,
-      timestamp: new Date().toISOString(),
-    });
-
-    const alert = await Alert.findOne({ triggerType: AlertTriggerType.PSI_DRIFT });
-    expect(alert).not.toBeNull();
-    expect(alert!.severity).toBe(AlertSeverity.HIGH);
-    expect(alert!.affectedLanguage).toBe(MLLanguage.YO);
   });
 });

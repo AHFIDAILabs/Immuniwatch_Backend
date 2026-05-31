@@ -10,6 +10,7 @@ export interface IHITLReview extends Document {
   reviewedBy?: ObjectId;
   reviewedAt?: Date;
   notes?: string;
+  reviewerNote?: string;
   overriddenLabel?: ClassificationLabel;
   proposedResponse?: string;
   approvedResponse?: string;
@@ -35,6 +36,7 @@ const hitlReviewSchema = new Schema<IHITLReview>(
     reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' },
     reviewedAt: { type: Date },
     notes: { type: String },
+    reviewerNote: { type: String, maxlength: 1000 },
     overriddenLabel: {
       type: String,
       enum: Object.values(ClassificationLabel),

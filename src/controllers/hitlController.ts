@@ -5,6 +5,7 @@ import { HITLPriority, HITLStatus, AuthenticatedRequest, ClassificationLabel } f
 import { HITLReview } from '../models/HITLReview';
 import { User }       from '../models/User';
 import * as hitlService from '../services/hitlService';
+import { AppError } from '../utils/AppError';
 
 // ── Personal stats (any authenticated user) ───────────────────────────────────
 
@@ -105,7 +106,8 @@ export async function getQueue(req: Request, res: Response, next: NextFunction) 
 export async function approve(req: Request, res: Response, next: NextFunction) {
   try {
     const { user } = req as AuthenticatedRequest;
-    const review = await hitlService.approveReview(req.params.id, user.id, user.role);
+    const { reviewerNote } = req.body as { reviewerNote?: string };
+    const review = await hitlService.approveReview(req.params.id, user.id, user.role, reviewerNote);
     res.json(review);
   } catch (err) { next(err); }
 }
@@ -122,7 +124,7 @@ export async function override(req: Request, res: Response, next: NextFunction) 
     // Accept either field name — overrideLabel is what the frontend sends
     const label = (overrideLabel ?? newLabel) as ClassificationLabel;
     const review = await hitlService.overrideReview(
-      req.params.id, user.id, user.role, label, editedResponse ?? '',
+      req.params.id, user.id, user.role, label, editedResponse ?? '', reviewerNote,
     );
     res.json(review);
   } catch (err) { next(err); }
@@ -131,7 +133,37 @@ export async function override(req: Request, res: Response, next: NextFunction) 
 export async function reject(req: Request, res: Response, next: NextFunction) {
   try {
     const { user } = req as AuthenticatedRequest;
-    const review = await hitlService.rejectReview(req.params.id, user.id, user.role);
+    const { reviewerNote } = req.body as { reviewerNote?: string };
+    const review = await hitlService.rejectReview(req.params.id, user.id, user.role, reviewerNote);
     res.json(review);
+  } catch (err) { next(err); }
+}
+
+export async function queuePost(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { postId } = req.body as { postId: string };
+    if (!postId) throw new AppError(400, 'postId is required');
+
+    const { classifyPost } = await import('../services/classificationService');
+    const { classification, hitlReview } = await classifyPost(postId);
+
+    if (hitlReview) {
+      res.status(201).json(hitlReview);
+    } else {
+      // Already classified and below threshold — create a manual HITL review
+      const existing = await HITLReview.findOne({ postId });
+      if (existing) {
+        res.json(existing);
+        return;
+      }
+      const review = await HITLReview.create({
+        postId,
+        classificationId: classification._id,
+        priority:         HITLPriority.STANDARD,
+        status:           HITLStatus.PENDING,
+        notes:            'Manually queued for review',
+      });
+      res.status(201).json(review);
+    }
   } catch (err) { next(err); }
 }

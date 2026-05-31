@@ -89,7 +89,7 @@ describe('POST /auth/login', () => {
     expect(res.body).not.toHaveProperty('accessToken');
     expect(res.body).not.toHaveProperty('refreshToken');
 
-    const cookies = res.headers['set-cookie'] as string[];
+    const cookies = res.headers['set-cookie'] as unknown as string[];
     expect(cookies.some((c) => c.startsWith('access_token='))).toBe(true);
     expect(cookies.some((c) => c.startsWith('refresh_token='))).toBe(true);
     expect(cookies.every((c) => c.includes('HttpOnly'))).toBe(true);
@@ -123,11 +123,11 @@ describe('POST /auth/refresh', () => {
     const app = buildApp();
 
     const login = await request(app).post('/auth/login').send({ email: 'analyst@test.com', password: 'Password1!' });
-    const cookies = (login.headers['set-cookie'] as string[]).join('; ');
+    const cookies = (login.headers['set-cookie'] as unknown as string[]).join('; ');
 
     const res = await request(app).post('/auth/refresh').set('Cookie', cookies);
     expect(res.status).toBe(200);
-    const newCookies = res.headers['set-cookie'] as string[];
+    const newCookies = res.headers['set-cookie'] as unknown as string[];
     expect(newCookies.some((c) => c.startsWith('access_token='))).toBe(true);
   });
 
@@ -144,7 +144,7 @@ describe('GET /auth/me', () => {
     const app = buildApp();
 
     const login = await request(app).post('/auth/login').send({ email: 'analyst@test.com', password: 'Password1!' });
-    const cookies = (login.headers['set-cookie'] as string[]).join('; ');
+    const cookies = (login.headers['set-cookie'] as unknown as string[]).join('; ');
 
     const res = await request(app).get('/auth/me').set('Cookie', cookies);
     expect(res.status).toBe(200);
@@ -164,13 +164,13 @@ describe('POST /auth/logout', () => {
     const app = buildApp();
 
     const login  = await request(app).post('/auth/login').send({ email: 'analyst@test.com', password: 'Password1!' });
-    const cookies = (login.headers['set-cookie'] as string[]).join('; ');
+    const cookies = (login.headers['set-cookie'] as unknown as string[]).join('; ');
 
     const logout = await request(app).post('/auth/logout').set('Cookie', cookies);
     expect(logout.status).toBe(200);
 
     // Cleared cookies should have maxAge=0 or expired date
-    const clearedCookies = logout.headers['set-cookie'] as string[];
+    const clearedCookies = logout.headers['set-cookie'] as unknown as string[];
     expect(clearedCookies.some((c) => c.includes('access_token=;') || c.includes('Expires=Thu, 01 Jan 1970'))).toBe(true);
   });
 });

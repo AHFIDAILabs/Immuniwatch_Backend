@@ -56,12 +56,13 @@ export const inviteUserSchema = z.object({
 });
 
 export const updateUserSchema = z.object({
-  name:   z.string().min(1).max(128).optional(),
-  role:   UserRole.optional(),
-  active: z.boolean().optional(),
+  name:        z.string().min(1).max(128).optional(),
+  role:        UserRole.optional(),
+  active:      z.boolean().optional(),
+  newPassword: z.string().min(8).max(128).optional(),
 }).refine(
-  (d) => d.name != null || d.role != null || d.active != null,
-  { message: 'At least one field (name, role, active) must be provided' },
+  (d) => d.name != null || d.role != null || d.active != null || d.newPassword != null,
+  { message: 'At least one field (name, role, active, newPassword) must be provided' },
 );
 
 // ── Knowledge Base ────────────────────────────────────────────────────────────
@@ -71,6 +72,12 @@ export const uploadKbSchema = z.object({
   source:    z.string().min(1, 'Source is required').max(128),
   language:  PostLanguage,
   immediate: z.string().optional(),   // multipart sends strings; parsed as boolean in controller
+});
+
+// ── Admin password reset ──────────────────────────────────────────────────────
+
+export const resetPasswordSchema = z.object({
+  password: z.string().min(8, 'Password must be at least 8 characters').max(128),
 });
 
 // ── Model Health ──────────────────────────────────────────────────────────────

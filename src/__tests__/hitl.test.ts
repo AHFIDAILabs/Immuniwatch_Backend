@@ -6,6 +6,7 @@
 import request from 'supertest';
 import express from 'express';
 import cookieParser from 'cookie-parser';
+import nock from 'nock';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 
@@ -63,6 +64,7 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
+  nock.cleanAll();
   await mongoose.connection.dropDatabase();
 });
 
@@ -74,7 +76,7 @@ afterAll(async () => {
 // ── Seed helpers ──────────────────────────────────────────────────────────────
 
 async function seedAnalyst() {
-  const user = new User({ name: 'Analyst', email: 'analyst@test.com', role: 'analyst', isActive: true });
+  const user = new User({ name: 'Senior Analyst', email: 'analyst@test.com', role: 'senior_analyst', isActive: true });
   user.set('password', 'Password1!');
   await user.save();
   return user;
@@ -88,12 +90,12 @@ async function seedReview() {
     ingestedAt: new Date(),
   });
   const cls = await Classification.create({
-    postId:     post._id,
-    label:      'misinformation',
-    confidence: 0.92,
-    fallback:   false,
+    postId:       post._id,
+    label:        'misinformation',
+    confidence:   0.92,
+    entropy:      0.12,
+    fallback:     false,
     modelVersion: 'v1.0.0',
-    suggestedResponse: 'This claim is false. Vaccines are safe and do not affect fertility.',
   });
   const review = await HITLReview.create({
     postId:           post._id,
@@ -106,7 +108,7 @@ async function seedReview() {
 
 async function loginCookies(app: express.Application) {
   const res = await request(app).post('/auth/login').send({ email: 'analyst@test.com', password: 'Password1!' });
-  return (res.headers['set-cookie'] as string[]).join('; ');
+  return (res.headers['set-cookie'] as unknown as string[]).join('; ');
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -164,6 +166,10 @@ describe('POST /hitl/:id/reject', () => {
     const app        = buildApp();
     const cookies    = await loginCookies(app);
 
+    nock('http://localhost:8000')
+      .post('/feedback')
+      .reply(200, { accepted: true, feedback_id: 'fb-reject-1', queued_for_training: true, training_queue_size: 1 });
+
     const res = await request(app).post(`/hitl/${review._id}/reject`).set('Cookie', cookies);
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('rejected');
@@ -176,6 +182,10 @@ describe('POST /hitl/:id/override', () => {
     const { review } = await seedReview();
     const app        = buildApp();
     const cookies    = await loginCookies(app);
+
+    nock('http://localhost:8000')
+      .post('/feedback')
+      .reply(200, { accepted: true, feedback_id: 'fb-override-1', queued_for_training: true, training_queue_size: 2 });
 
     const res = await request(app)
       .post(`/hitl/${review._id}/override`)
@@ -193,6 +203,7 @@ describe('POST /hitl/:id/override', () => {
     const app        = buildApp();
     const cookies    = await loginCookies(app);
 
+    // No nock needed — validation rejects before hitting ML service
     const res = await request(app)
       .post(`/hitl/${review._id}/override`)
       .set('Cookie', cookies)

@@ -14,6 +14,7 @@ const supervisors = authorize(UserRole.SUPERVISOR, UserRole.SUPER_ADMIN);
 router.get ('/my-stats',   hitl.getMyStats);
 router.get ('/team-stats', supervisors, hitl.getTeamStats);
 router.get ('/',           hitl.getQueue);
+router.post('/queue',      hitl.queuePost);
 router.post('/:id/approve',  reviewers, hitl.approve);
 router.post('/:id/override', reviewers, validate(overrideSchema), hitl.override);
 router.post('/:id/reject',   reviewers, validate(rejectSchema),   hitl.reject);

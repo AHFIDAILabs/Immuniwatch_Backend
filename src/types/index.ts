@@ -11,9 +11,10 @@ export enum UserRole {
 }
 
 export enum PostPlatform {
-  TWITTER = 'twitter',
-  FACEBOOK = 'facebook',
-  YOUTUBE = 'youtube',
+  TWITTER    = 'twitter',
+  FACEBOOK   = 'facebook',
+  YOUTUBE    = 'youtube',
+  BLUESKY    = 'bluesky',
   SUBMISSION = 'submission',
 }
 

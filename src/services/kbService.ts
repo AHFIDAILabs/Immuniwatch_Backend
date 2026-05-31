@@ -2,14 +2,15 @@
  * kbService — Knowledge Base document management & semantic search.
  *
  * Embedding strategy:
- *   • Async (default): publish iw.embedding-request to Kafka; Python ML responds
- *     via iw.embedding-result. Document is returned immediately with embedded=false.
+ *   • Async (default): call mlClient.embedBatch() via setImmediate; document is
+ *     returned immediately with embedded=false and updated in the background.
  *   • Immediate (uploadDocument({ immediate: true })): call mlClient.getEmbedding()
  *     synchronously and store the vector before returning.
  *
  * Search:
  *   • Cosine similarity in JS — acceptable up to ~3,000 docs.
  *   TODO: migrate to pgvector IVFFlat index when KB exceeds 3,000 documents.
+ *   • Similarity threshold: 0.72 — results below this score are discarded.
  *   • Falls back to MongoDB $text search when mlClient returns a zero-vector.
  */
 
@@ -129,16 +130,22 @@ export async function uploadDocument(
       doc.set({ embeddingVector: vector, embedded: true });
     }
   } else {
-    // Async embedding via Kafka
+    // Async embedding via HTTP batch endpoint (Phase 1 — Kafka not used for ML comms)
+    const docId   = doc._id.toString();
+    const mlLang  = mapLanguage(opts.language);
     setImmediate(async () => {
       try {
-        const { publishEmbeddingRequest } = await import('../utils/kafkaProducer');
-        await publishEmbeddingRequest(
-          doc._id.toString(),
-          extractedText,
-          mapLanguage(opts.language),
-        );
-      } catch { /* logged inside publishEmbeddingRequest */ }
+        const results = await mlClient.embedBatch([{ doc_id: docId, text: extractedText, language: mlLang }]);
+        const item = results[0];
+        if (item && !isZeroVector(item.embedding)) {
+          await KnowledgeBase.findByIdAndUpdate(docId, {
+            embeddingVector: item.embedding,
+            embedded:        true,
+          });
+        }
+      } catch (err) {
+        logger.warn(`kbService: async embed failed for doc=${docId}: ${(err as Error).message}`);
+      }
     });
   }
 
@@ -166,6 +173,8 @@ export async function searchSimilar(
     .select('_id title source content embeddingVector')
     .lean();
 
+  const COSINE_THRESHOLD = 0.72;
+
   const scored = docs
     .map((d) => ({
       docId:   d._id.toString(),
@@ -174,6 +183,7 @@ export async function searchSimilar(
       snippet: ((d.content as string) ?? '').slice(0, 300),
       score:   cosineSimilarity(queryVec, (d.embeddingVector as number[]) ?? []),
     }))
+    .filter((r) => r.score >= COSINE_THRESHOLD)
     .sort((a, b) => b.score - a.score)
     .slice(0, topK);
 

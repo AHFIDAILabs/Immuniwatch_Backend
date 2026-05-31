@@ -38,6 +38,8 @@ const userSchema = new Schema<IUser>(
 
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
+  // Guard against double-hashing (e.g. seed pre-hashes, or select:false quirk)
+  if (this.password.startsWith('$2')) return next();
   this.password = await bcrypt.hash(this.password, 12);
   next();
 });
