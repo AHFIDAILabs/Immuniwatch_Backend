@@ -49,10 +49,10 @@ export const rejectSchema = z.object({
 // ── Users ─────────────────────────────────────────────────────────────────────
 
 export const inviteUserSchema = z.object({
-  name:     z.string().min(1, 'Name is required').max(128),
-  email:    z.string().email('Must be a valid email address'),
-  role:     UserRole,
-  password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+  name:           z.string().min(1, 'Name is required').max(128),
+  email:          z.string().email('Must be a valid email address'),
+  role:           UserRole,
+  organizationId: z.string().optional(),  // super_admin specifies target org
 });
 
 export const updateUserSchema = z.object({

@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import mongoose from 'mongoose';
 
 import { User }        from '../models/User';
@@ -7,6 +8,15 @@ import { Organization } from '../models/Organization';
 import { AuditLog }    from '../models/AuditLog';
 import { UserRole, AuditAction, AuthenticatedRequest } from '../types';
 import { AppError }    from '../utils/AppError';
+import { inviteLink }  from './authController';
+
+const INVITE_TTL_HOURS = 72;
+
+function makeInviteToken() {
+  const token     = crypto.randomBytes(32).toString('hex');
+  const expiresAt = new Date(Date.now() + INVITE_TTL_HOURS * 60 * 60 * 1000);
+  return { token, expiresAt };
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -45,28 +55,23 @@ export async function getUser(req: Request, res: Response, next: NextFunction) {
   } catch (err) { next(err); }
 }
 
-// ── Create user ───────────────────────────────────────────────────────────────
+// ── Create user (invite flow) ─────────────────────────────────────────────────
 
 export async function inviteUser(req: Request, res: Response, next: NextFunction) {
   try {
     const actor = (req as AuthenticatedRequest).user;
-    const { name, email, role, password } = req.body as {
-      name: string; email: string; role: UserRole; password: string;
-    };
+    const { name, email, role } = req.body as { name: string; email: string; role: UserRole };
 
-    // Determine which org this user belongs to
+    // Determine org scope
     let organizationId: mongoose.Types.ObjectId | undefined;
     if (actor.role === UserRole.SUPER_ADMIN) {
-      // super_admin creates org_admins → they must specify an org via body
       const { organizationId: bodyOrg } = req.body as { organizationId?: string };
       if (bodyOrg) organizationId = new mongoose.Types.ObjectId(bodyOrg);
     } else {
-      // org_admin creates users within their own org
       if (!actor.organizationId) throw new AppError(400, 'INVALID', 'No organization context');
       organizationId = new mongoose.Types.ObjectId(actor.organizationId);
     }
 
-    // org_admin cannot create other org_admins or super_admins
     if (actor.role === UserRole.ORG_ADMIN && (role === UserRole.ORG_ADMIN || role === UserRole.SUPER_ADMIN)) {
       throw new AppError(403, 'FORBIDDEN', 'org_admin cannot create admin accounts');
     }
@@ -77,17 +82,28 @@ export async function inviteUser(req: Request, res: Response, next: NextFunction
     }).lean();
     if (exists) throw new AppError(409, 'CONFLICT', 'Email already registered in this organization');
 
+    const { token, expiresAt } = makeInviteToken();
+
     const created = await User.create({
-      name, email: email.toLowerCase(), role, password, organizationId,
+      name,
+      email:                email.toLowerCase(),
+      role,
+      password:             crypto.randomBytes(24).toString('hex'), // placeholder — never used directly
+      organizationId,
+      isInvitePending:      true,
+      inviteToken:          token,
+      inviteTokenExpiresAt: expiresAt,
     });
 
-    // Keep org user count in sync
     if (organizationId) {
       await Organization.findByIdAndUpdate(organizationId, { $inc: { userCount: 1 } });
     }
 
-    const user = await User.findById(created._id).select('-password -refreshToken').lean();
-    res.status(201).json(user);
+    res.status(201).json({
+      user:       { _id: created._id, name: created.name, email: created.email, role: created.role },
+      inviteLink: inviteLink(token),
+      expiresAt:  expiresAt.toISOString(),
+    });
   } catch (err) { next(err); }
 }
 
@@ -114,10 +130,16 @@ export async function updateUser(req: Request, res: Response, next: NextFunction
       throw new AppError(403, 'FORBIDDEN', 'org_admin cannot assign admin roles');
     }
 
-    if (name)            target.name     = name;
-    if (role)            target.role     = role;
-    if (active != null)  target.isActive = active;
-    if (newPassword)     target.password = await bcrypt.hash(newPassword, 12);
+    if (name)           target.name     = name;
+    if (role)           target.role     = role;
+    if (newPassword)    target.password = await bcrypt.hash(newPassword, 12);
+
+    if (active != null) {
+      target.isActive = active;
+      // Immediately invalidate the user's session when deactivated
+      // so their next refresh attempt returns ACCOUNT_DEACTIVATED.
+      if (!active) target.refreshToken = undefined;
+    }
 
     await target.save();
     const { password: _pw, refreshToken: _rt, ...safe } = target.toObject();

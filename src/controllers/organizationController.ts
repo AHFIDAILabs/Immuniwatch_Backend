@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 
 import { Organization } from '../models/Organization';
 import { User }         from '../models/User';
@@ -9,6 +10,9 @@ import { Alert }        from '../models/Alert';
 import { AppSettings }  from '../models/AppSettings';
 import { AuthenticatedRequest, UserRole, HITLStatus } from '../types';
 import { AppError }     from '../utils/AppError';
+import { generateInviteToken, inviteLink } from './authController';
+
+const INVITE_TTL_HOURS = 72;
 
 function slugify(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -243,35 +247,37 @@ export async function getPlatformOverview(_req: Request, res: Response, next: Ne
 
 export async function createOrgAdmin(req: Request, res: Response, next: NextFunction) {
   try {
-    const { user: actor } = req as AuthenticatedRequest;
     const orgId = req.params.id;
 
     const org = await Organization.findById(orgId).lean();
     if (!org) throw new AppError(404, 'NOT_FOUND', 'Organization not found');
 
-    const { name, email, password } = req.body as { name: string; email: string; password: string };
+    const { name, email } = req.body as { name: string; email: string };
 
     const exists = await User.findOne({ email: email.toLowerCase(), organizationId: orgId }).lean();
     if (exists) throw new AppError(409, 'CONFLICT', 'Email already registered in this organization');
 
+    const token     = generateInviteToken();
+    const expiresAt = new Date(Date.now() + INVITE_TTL_HOURS * 60 * 60 * 1000);
+
     const created = await User.create({
       name,
-      email:          email.toLowerCase(),
-      password,
-      role:           UserRole.ORG_ADMIN,
-      organizationId: new mongoose.Types.ObjectId(orgId),
-      isActive:       true,
+      email:                email.toLowerCase(),
+      password:             crypto.randomBytes(24).toString('hex'), // placeholder
+      role:                 UserRole.ORG_ADMIN,
+      organizationId:       new mongoose.Types.ObjectId(orgId),
+      isActive:             true,
+      isInvitePending:      true,
+      inviteToken:          token,
+      inviteTokenExpiresAt: expiresAt,
     });
 
-    // Update org user count
     await Organization.findByIdAndUpdate(orgId, { $inc: { userCount: 1 } });
 
     res.status(201).json({
-      _id:            created._id,
-      name:           created.name,
-      email:          created.email,
-      role:           created.role,
-      organizationId: orgId,
+      user:       { _id: created._id, name: created.name, email: created.email, role: created.role },
+      inviteLink: inviteLink(token),
+      expiresAt:  expiresAt.toISOString(),
     });
   } catch (err) { next(err); }
 }
