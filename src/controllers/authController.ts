@@ -6,7 +6,7 @@ import { AuditLog }     from '../models/AuditLog';
 import { signAccessToken, signRefreshToken, verifyToken } from '../utils/jwt';
 import { AppError }     from '../utils/AppError';
 import { config }       from '../config';
-import { AuthenticatedRequest, AuditAction } from '../types';
+import { AuthenticatedRequest, AuditAction, UserRole } from '../types';
 
 // ── Invite helpers ────────────────────────────────────────────────────────────
 
@@ -14,8 +14,14 @@ export function generateInviteToken(): string {
   return crypto.randomBytes(32).toString('hex');
 }
 
+/** Link sent to the user who was personally invited (set their own password) */
 export function inviteLink(token: string): string {
   return `${config.frontendUrl}/accept-invite/${token}`;
+}
+
+/** Link that lets someone self-register as the org admin for an organization */
+export function orgClaimLink(token: string): string {
+  return `${config.frontendUrl}/claim-org/${token}`;
 }
 
 // ── Cookie helpers ────────────────────────────────────────────────────────────
@@ -129,7 +135,66 @@ export async function logout(req: Request, res: Response, next: NextFunction): P
 
 // ── Invite flow ───────────────────────────────────────────────────────────────
 
-/** GET /auth/invite/:token — validate token, return public user info */
+// ── Org-admin self-registration (claim) flow ─────────────────────────────────
+
+/** GET /auth/claim-org/:token — validate token, return org info for the claim page */
+export async function getOrgClaim(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { token } = req.params;
+    const org = await Organization.findOne({ claimToken: token }).lean();
+
+    if (!org)                                              throw new AppError(404, 'CLAIM_NOT_FOUND',  'This link is invalid or has been revoked.');
+    if (org.claimTokenExpiresAt && org.claimTokenExpiresAt < new Date())
+                                                           throw new AppError(410, 'CLAIM_EXPIRED',    'This invite link has expired. Ask the platform admin to regenerate it.');
+    if (org.adminClaimed)                                  throw new AppError(409, 'CLAIM_ALREADY_USED','An admin has already been registered for this organization.');
+
+    res.json({ orgName: org.name, orgId: org._id.toString(), region: org.region, state: org.state });
+  } catch (err) { next(err); }
+}
+
+/** POST /auth/claim-org — self-register as org admin */
+export async function acceptOrgClaim(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { token, name, email, password } = req.body as {
+      token: string; name: string; email: string; password: string;
+    };
+    if (!token || !name || !email || !password || password.length < 8) {
+      throw new AppError(400, 'INVALID', 'token, name, email and password (min 8 chars) are required');
+    }
+
+    const org = await Organization.findOne({ claimToken: token });
+    if (!org)                                              throw new AppError(404, 'CLAIM_NOT_FOUND',  'This link is invalid or has been revoked.');
+    if (org.claimTokenExpiresAt && org.claimTokenExpiresAt < new Date())
+                                                           throw new AppError(410, 'CLAIM_EXPIRED',    'This invite link has expired. Ask the platform admin to regenerate it.');
+    if (org.adminClaimed)                                  throw new AppError(409, 'CLAIM_ALREADY_USED','An admin has already been registered for this organization.');
+
+    // Check email not already used in this org
+    const exists = await User.findOne({ email: email.toLowerCase(), organizationId: org._id }).lean();
+    if (exists) throw new AppError(409, 'CONFLICT', 'This email is already registered in the organization.');
+
+    // Create the org_admin user
+    const user = await User.create({
+      name,
+      email:          email.toLowerCase(),
+      password,
+      role:           UserRole.ORG_ADMIN,
+      organizationId: org._id,
+      isActive:       true,
+      isInvitePending: false,
+    });
+
+    // Mark org as claimed and clear the token
+    org.adminClaimed        = true;
+    org.claimToken          = undefined;
+    org.claimTokenExpiresAt = undefined;
+    org.userCount           = (org.userCount ?? 0) + 1;
+    await org.save();
+
+    res.status(201).json({ message: 'Admin account created. You can now log in.', email: user.email });
+  } catch (err) { next(err); }
+}
+
+/** POST /auth/invite/:token — validate token, return public user info */
 export async function getInvite(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { token } = req.params;

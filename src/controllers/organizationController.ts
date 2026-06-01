@@ -10,9 +10,9 @@ import { Alert }        from '../models/Alert';
 import { AppSettings }  from '../models/AppSettings';
 import { AuthenticatedRequest, UserRole, HITLStatus } from '../types';
 import { AppError }     from '../utils/AppError';
-import { generateInviteToken, inviteLink } from './authController';
+import { orgClaimLink } from './authController';
 
-const INVITE_TTL_HOURS = 72;
+const CLAIM_TTL_DAYS = 30;  // claim links are valid for 30 days, regeneratable by super admin
 
 function slugify(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -67,6 +67,7 @@ export async function listOrganizations(req: Request, res: Response, next: NextF
 export async function getOrganization(req: Request, res: Response, next: NextFunction) {
   try {
     const org = await Organization.findById(req.params.id)
+      .select('+claimToken +claimTokenExpiresAt')
       .populate('createdBy', 'name email')
       .lean();
     if (!org) throw new AppError(404, 'NOT_FOUND', 'Organization not found');
@@ -89,6 +90,8 @@ export async function getOrganization(req: Request, res: Response, next: NextFun
       ...org,
       users,
       stats: { postsToday, postsTotal, hitlPending, hitlTotal, openAlerts: alerts },
+      // Include claim link for super_admin so they can copy/share it from the detail page
+      claimLink: (!org.adminClaimed && org.claimToken) ? orgClaimLink(org.claimToken) : null,
     });
   } catch (err) { next(err); }
 }
@@ -109,14 +112,25 @@ export async function createOrganization(req: Request, res: Response, next: Next
     const existing = await Organization.findOne({ slug }).lean();
     if (existing) throw new AppError(409, 'CONFLICT', `An organization with slug "${slug}" already exists`);
 
+    // Auto-generate the claim token — super admin copies and shares this link
+    const token     = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + CLAIM_TTL_DAYS * 24 * 60 * 60 * 1000);
+
     const org = await Organization.create({
       name, slug, description, region, state, contactEmail, phoneNumber,
-      plan: plan ?? 'basic',
-      status: 'active',
-      createdBy: user.id,
+      plan:                plan ?? 'basic',
+      status:              'active',
+      createdBy:           user.id,
+      adminClaimed:        false,
+      claimToken:          token,
+      claimTokenExpiresAt: expiresAt,
     });
 
-    res.status(201).json(org);
+    res.status(201).json({
+      ...org.toObject(),
+      claimLink:  orgClaimLink(token),
+      claimToken: token,      // included so frontend can build the link client-side too
+    });
   } catch (err) { next(err); }
 }
 
@@ -243,41 +257,50 @@ export async function getPlatformOverview(_req: Request, res: Response, next: Ne
   } catch (err) { next(err); }
 }
 
-// ── Create org_admin user for an organization ─────────────────────────────────
+// ── Get current claim link for an organization (super_admin only) ─────────────
 
-export async function createOrgAdmin(req: Request, res: Response, next: NextFunction) {
+export async function getClaimLink(req: Request, res: Response, next: NextFunction) {
   try {
-    const orgId = req.params.id;
-
-    const org = await Organization.findById(orgId).lean();
+    const org = await Organization.findById(req.params.id).select('+claimToken +claimTokenExpiresAt').lean();
     if (!org) throw new AppError(404, 'NOT_FOUND', 'Organization not found');
 
-    const { name, email } = req.body as { name: string; email: string };
+    if (org.adminClaimed) {
+      return res.json({ adminClaimed: true, claimLink: null });
+    }
 
-    const exists = await User.findOne({ email: email.toLowerCase(), organizationId: orgId }).lean();
-    if (exists) throw new AppError(409, 'CONFLICT', 'Email already registered in this organization');
-
-    const token     = generateInviteToken();
-    const expiresAt = new Date(Date.now() + INVITE_TTL_HOURS * 60 * 60 * 1000);
-
-    const created = await User.create({
-      name,
-      email:                email.toLowerCase(),
-      password:             crypto.randomBytes(24).toString('hex'), // placeholder
-      role:                 UserRole.ORG_ADMIN,
-      organizationId:       new mongoose.Types.ObjectId(orgId),
-      isActive:             true,
-      isInvitePending:      true,
-      inviteToken:          token,
-      inviteTokenExpiresAt: expiresAt,
+    const link = org.claimToken ? orgClaimLink(org.claimToken) : null;
+    res.json({
+      adminClaimed:        false,
+      claimLink:           link,
+      claimTokenExpiresAt: org.claimTokenExpiresAt?.toISOString() ?? null,
     });
+  } catch (err) { next(err); }
+}
 
-    await Organization.findByIdAndUpdate(orgId, { $inc: { userCount: 1 } });
+// ── Regenerate claim link (super_admin only) ──────────────────────────────────
+// Use this if the link expired, was shared incorrectly, or to replace the org admin.
 
-    res.status(201).json({
-      user:       { _id: created._id, name: created.name, email: created.email, role: created.role },
-      inviteLink: inviteLink(token),
-      expiresAt:  expiresAt.toISOString(),
+export async function regenerateClaimLink(req: Request, res: Response, next: NextFunction) {
+  try {
+    const orgId    = req.params.id;
+    const token    = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + CLAIM_TTL_DAYS * 24 * 60 * 60 * 1000);
+
+    const org = await Organization.findByIdAndUpdate(
+      orgId,
+      {
+        claimToken:          token,
+        claimTokenExpiresAt: expiresAt,
+        adminClaimed:        false,   // allow re-claiming (e.g. replacing an admin)
+      },
+      { new: true },
+    ).lean();
+
+    if (!org) throw new AppError(404, 'NOT_FOUND', 'Organization not found');
+
+    res.json({
+      claimLink:           orgClaimLink(token),
+      claimTokenExpiresAt: expiresAt.toISOString(),
     });
   } catch (err) { next(err); }
 }

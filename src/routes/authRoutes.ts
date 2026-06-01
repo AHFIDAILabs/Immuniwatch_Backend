@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { login, refresh, logout, me, getInvite, acceptInvite } from '../controllers/authController';
+import { login, refresh, logout, me, getInvite, acceptInvite, getOrgClaim, acceptOrgClaim } from '../controllers/authController';
 import { authenticate } from '../middlewares/auth';
 import { authLimiter } from '../middlewares/rateLimiter';
 import { validate } from '../middlewares/validate';
@@ -12,8 +12,12 @@ router.post('/refresh',        refresh);
 router.post('/logout',         authenticate, logout);
 router.get ('/me',             authenticate, me);
 
-// ── Invite flow (public — no auth required) ───────────────────────────────────
-router.get ('/invite/:token',  getInvite);
-router.post('/accept-invite',  acceptInvite);
+// ── User invite flow (public) ─────────────────────────────────────────────────
+router.get ('/invite/:token',   getInvite);
+router.post('/accept-invite',   acceptInvite);
+
+// ── Org-admin self-registration / claim flow (public) ─────────────────────────
+router.get ('/claim-org/:token', getOrgClaim);
+router.post('/claim-org',        acceptOrgClaim);
 
 export default router;
