@@ -96,6 +96,7 @@ export async function getConnectorStatus(
   try {
     const oneMinAgo  = new Date(Date.now() - 60_000);
     const oneHourAgo = new Date(Date.now() - 60 * 60_000);
+    const twoHrAgo   = new Date(Date.now() - 2 * 60 * 60_000);
 
     // Count events per minute and last event time for each live platform
     const [
@@ -114,15 +115,29 @@ export async function getConnectorStatus(
     const ts = (doc: unknown) =>
       doc ? (doc as { ingestedAt: Date }).ingestedAt.toISOString() : '';
 
-    // A connector is 'active' if it has received any posts in the last hour
-    const ytTotalHour = await Post.countDocuments({ platform: PostPlatform.YOUTUBE,  ingestedAt: { $gte: oneHourAgo } });
-    const bsTotalHour = await Post.countDocuments({ platform: PostPlatform.BLUESKY,  ingestedAt: { $gte: oneHourAgo } });
+    // Three-state logic so we don't conflate "no data yet" with "had data then stopped":
+    //   active   — posts seen in the last hour (connector is feeding data normally)
+    //   degraded — posts exist but none in the last 2 hours (connector was working, now silent)
+    //   waiting  — no posts ever (fresh install / ingestion hasn't run yet)
+    const connectorStatus = async (platform: PostPlatform): Promise<'active' | 'degraded' | 'waiting'> => {
+      const inLastHour = await Post.countDocuments({ platform, ingestedAt: { $gte: oneHourAgo } });
+      if (inLastHour > 0) return 'active';
+      const inLast2h = await Post.countDocuments({ platform, ingestedAt: { $gte: twoHrAgo } });
+      if (inLast2h > 0) return 'degraded';
+      const anyEver  = await Post.countDocuments({ platform }).limit(1);
+      return anyEver > 0 ? 'degraded' : 'waiting';
+    };
+
+    const [ytStatus, bsStatus] = await Promise.all([
+      connectorStatus(PostPlatform.YOUTUBE),
+      connectorStatus(PostPlatform.BLUESKY),
+    ]);
 
     res.json([
       {
         name:         'YouTube',
         platform:     'youtube',
-        status:       ytTotalHour > 0 ? 'active' : 'degraded',
+        status:       ytStatus,
         eventsPerMin: ytPerMin,
         lastEventAt:  ts(ytLast),
         errorRate:    0,
@@ -130,7 +145,7 @@ export async function getConnectorStatus(
       {
         name:         'Bluesky',
         platform:     'bluesky',
-        status:       bsTotalHour > 0 ? 'active' : 'degraded',
+        status:       bsStatus,
         eventsPerMin: bsPerMin,
         lastEventAt:  ts(bsLast),
         errorRate:    0,

@@ -1,10 +1,13 @@
 import { NextFunction, Request, Response } from 'express';
+import mongoose from 'mongoose';
 
+import { AuditLog }      from '../models/AuditLog';
 import { Classification } from '../models/Classification';
-import { Post } from '../models/Post';
-import { PostPlatform, PostLanguage } from '../types';
-import { AppError } from '../utils/AppError';
-import { classifyPost } from '../services/classificationService';
+import { HITLReview }    from '../models/HITLReview';
+import { Post }          from '../models/Post';
+import { PostPlatform, PostLanguage, AuthenticatedRequest, AuditAction } from '../types';
+import { AppError }      from '../utils/AppError';
+import { classifyPost }  from '../services/classificationService';
 import { publishRawPost } from '../utils/kafkaProducer';
 
 // ── Ingest a single post ──────────────────────────────────────────────────────
@@ -23,26 +26,41 @@ export async function ingestPost(req: Request, res: Response, next: NextFunction
     if (!content || !platform || !language)
       throw new AppError(400, 'MISSING_FIELDS', 'content, platform, and language are required');
 
-    // Prevent duplicate ingestion by externalId
     if (externalId) {
       const dup = await Post.findOne({ externalId, platform }).lean();
       if (dup) return res.status(200).json({ message: 'Duplicate — already ingested', post: dup });
     }
 
-    const post = await Post.create({
-      content,
-      platform,
-      language,
-      externalId,
-      authorHandle,
-      mediaUrls: mediaUrls ?? [],
-    });
-
-    // Classify asynchronously — don't block the response
+    const post = await Post.create({ content, platform, language, externalId, authorHandle, mediaUrls: mediaUrls ?? [] });
     setImmediate(() => classifyPost(post._id.toString()).catch(() => {}));
     await publishRawPost(post);
 
     res.status(202).json({ message: 'Post accepted for classification', postId: post._id });
+  } catch (err) { next(err); }
+}
+
+// ── Archive a post ────────────────────────────────────────────────────────────
+
+export async function archivePost(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { user } = req as AuthenticatedRequest;
+    const post = await Post.findById(req.params.id);
+    if (!post) throw new AppError(404, 'NOT_FOUND', 'Post not found');
+    if (post.archivedAt) return res.json({ message: 'Already archived', post });
+
+    post.archivedAt = new Date();
+    post.archivedBy = new mongoose.Types.ObjectId(user.id) as unknown as typeof post.archivedBy;
+    await post.save();
+
+    await AuditLog.create({
+      actor:        user.id,
+      action:       AuditAction.HITL_APPROVE,   // closest semantic — "confirmed factual, no action needed"
+      resourceType: 'Post',
+      resourceId:   post._id.toString(),
+      newValue:     { archivedAt: post.archivedAt },
+    });
+
+    res.json(post);
   } catch (err) { next(err); }
 }
 
@@ -69,13 +87,17 @@ export async function similarCount(req: Request, res: Response, next: NextFuncti
     const rows = await Post.aggregate(pipeline);
     const count = rows.reduce((s: number, r: { count: number }) => s + r.count, 0);
 
-    res.json({ label: cls.label, count, platforms: rows.map((r: { _id: string; count: number }) => ({ platform: r._id, count: r.count })) });
-  } catch (err) {
-    next(err);
-  }
+    res.json({
+      label: cls.label,
+      count,
+      platforms: rows.map((r: { _id: string; count: number }) => ({ platform: r._id, count: r.count })),
+    });
+  } catch (err) { next(err); }
 }
 
 // ── List posts ────────────────────────────────────────────────────────────────
+// Returns posts enriched with their latest Classification and HITLReview status
+// so the frontend can show the correct action button (Queue / In Queue / Archived).
 
 export async function listPosts(req: Request, res: Response, next: NextFunction) {
   try {
@@ -83,14 +105,24 @@ export async function listPosts(req: Request, res: Response, next: NextFunction)
     const limit    = Math.min(200, Number(req.query.limit) || 50);
     const platform = req.query.platform as PostPlatform | undefined;
     const language = req.query.language as PostLanguage | undefined;
-    const label    = req.query.label as string | undefined;
+    const search   = req.query.search as string | undefined;
+    const labeled  = req.query.labeled as string | undefined;  // 'true' | 'false'
 
+    // Build base post filter
     const matchPost: Record<string, unknown> = {};
     if (platform) matchPost.platform = platform;
     if (language) matchPost.language = language;
+    if (search?.trim()) matchPost.$text = { $search: search.trim() };
 
-    const matchCls: Record<string, unknown> = {};
-    if (label) matchCls['classification.label'] = label;
+    // If filtering by labeled/unlabeled, we need the set of classified post IDs first
+    if (labeled === 'true' || labeled === 'false') {
+      const classifiedIds = await Classification.distinct('postId');
+      if (labeled === 'true') {
+        matchPost._id = { $in: classifiedIds };
+      } else {
+        matchPost._id = { $nin: classifiedIds };
+      }
+    }
 
     const [posts, total] = await Promise.all([
       Post.find(matchPost)
@@ -101,16 +133,25 @@ export async function listPosts(req: Request, res: Response, next: NextFunction)
       Post.countDocuments(matchPost),
     ]);
 
-    // Attach classifications in one batch query
     const postIds = posts.map((p) => p._id);
-    const classifications = await Classification.find({ postId: { $in: postIds } })
-      .select('postId label confidence fallback')
-      .lean();
 
-    const clsMap = new Map(classifications.map((c) => [c.postId.toString(), c]));
+    // Batch-load classifications and HITL reviews in parallel
+    const [classifications, hitlReviews] = await Promise.all([
+      Classification.find({ postId: { $in: postIds } })
+        .select('postId label confidence fallback modelVersion')
+        .lean(),
+      HITLReview.find({ postId: { $in: postIds } })
+        .select('postId status priority')
+        .lean(),
+    ]);
+
+    const clsMap  = new Map(classifications.map((c) => [c.postId.toString(), c]));
+    const hitlMap = new Map(hitlReviews.map((h) => [h.postId.toString(), h]));
+
     const enriched = posts.map((p) => ({
       ...p,
-      classification: clsMap.get(p._id.toString()) ?? null,
+      classification: clsMap.get(p._id.toString())  ?? null,
+      hitlReview:     hitlMap.get(p._id.toString()) ?? null,
     }));
 
     res.json({ data: enriched, total, page, limit, totalPages: Math.ceil(total / limit) });

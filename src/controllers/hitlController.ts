@@ -141,29 +141,45 @@ export async function reject(req: Request, res: Response, next: NextFunction) {
 
 export async function queuePost(req: Request, res: Response, next: NextFunction) {
   try {
-    const { postId } = req.body as { postId: string };
-    if (!postId) throw new AppError(400, 'postId is required');
+    const { postId, priority: reqPriority } = req.body as {
+      postId:    string;
+      priority?: 'high' | 'standard';
+    };
+    if (!postId) throw new AppError(400, 'MISSING_FIELDS', 'postId is required');
+
+    const manualPriority = reqPriority === 'high' ? HITLPriority.HIGH : HITLPriority.STANDARD;
+
+    // If a review already exists for this post, return it (idempotent)
+    const existing = await HITLReview.findOne({ postId });
+    if (existing) {
+      // Upgrade priority if the caller requests high and current is standard
+      if (manualPriority === HITLPriority.HIGH && existing.priority !== HITLPriority.HIGH) {
+        existing.priority = HITLPriority.HIGH;
+        await existing.save();
+      }
+      return res.json(existing);
+    }
 
     const { classifyPost } = await import('../services/classificationService');
     const { classification, hitlReview } = await classifyPost(postId);
 
     if (hitlReview) {
-      res.status(201).json(hitlReview);
-    } else {
-      // Already classified and below threshold — create a manual HITL review
-      const existing = await HITLReview.findOne({ postId });
-      if (existing) {
-        res.json(existing);
-        return;
+      // classifyPost auto-created a review — upgrade priority if needed
+      if (manualPriority === HITLPriority.HIGH && hitlReview.priority !== HITLPriority.HIGH) {
+        hitlReview.priority = HITLPriority.HIGH;
+        await hitlReview.save();
       }
-      const review = await HITLReview.create({
-        postId,
-        classificationId: classification._id,
-        priority:         HITLPriority.STANDARD,
-        status:           HITLStatus.PENDING,
-        notes:            'Manually queued for review',
-      });
-      res.status(201).json(review);
+      return res.status(201).json(hitlReview);
     }
+
+    // Post was classified below HITL threshold — create manual review at requested priority
+    const review = await HITLReview.create({
+      postId,
+      classificationId: classification._id,
+      priority:         manualPriority,
+      status:           HITLStatus.PENDING,
+      notes:            `Manually ${manualPriority === HITLPriority.HIGH ? 'escalated' : 'queued'} for review`,
+    });
+    res.status(201).json(review);
   } catch (err) { next(err); }
 }

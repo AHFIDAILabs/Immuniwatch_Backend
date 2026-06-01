@@ -7,8 +7,9 @@ import * as post from '../controllers/postController';
 const router = Router();
 router.use(authenticate);
 
-router.get ('/',              post.listPosts);
-router.get ('/similar-count', post.similarCount);
+router.get ('/',                    post.listPosts);
+router.get ('/similar-count',       post.similarCount);
 router.post('/', validate(ingestPostSchema), post.ingestPost);
+router.patch('/:id/archive',        post.archivePost);
 
 export default router;
