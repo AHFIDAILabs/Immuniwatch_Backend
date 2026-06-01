@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import multer from 'multer';
 import { authenticate, authorize } from '../middlewares/auth';
 import { validate } from '../middlewares/validate';
@@ -9,7 +9,7 @@ import * as kb from '../controllers/kbController';
 const upload = multer({
   storage: multer.memoryStorage(),
   limits:  { fileSize: 20 * 1024 * 1024 }, // 20 MB
-  fileFilter: (_req, file, cb) => {
+  fileFilter: (_req: express.Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
     const allowed = ['application/pdf', 'text/plain', 'application/msword',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
     cb(null, allowed.includes(file.mimetype));

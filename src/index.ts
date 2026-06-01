@@ -92,13 +92,13 @@ app.use(cookieParser());
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 app.use(
-  morgan("combined", { stream: { write: (msg) => logger.http(msg.trim()) } }),
+  morgan("combined", { stream: { write: (msg: string) => logger.http(msg.trim()) } }),
 );
 app.use(globalLimiter);
 
 // ── Health / readiness ────────────────────────────────────────────────────────
 
-app.get("/health", (_req, res) => {
+app.get("/health", (_req: express.Request, res: express.Response) => {
   res.json({
     status: "ok",
     uptime: process.uptime(),
