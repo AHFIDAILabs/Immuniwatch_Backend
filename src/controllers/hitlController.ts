@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from 'express';
 import mongoose from 'mongoose';
 
 import { HITLPriority, HITLStatus, AuthenticatedRequest, ClassificationLabel } from '../types';
+import { globalOrOrgFilter } from '../middlewares/auth';
 import { HITLReview } from '../models/HITLReview';
 import { User }       from '../models/User';
 import * as hitlService from '../services/hitlService';
@@ -26,7 +27,7 @@ export async function getMyStats(req: Request, res: Response, next: NextFunction
         reviewedAt: { $gte: sevenDaysAgo },
         status:     { $in: [HITLStatus.APPROVED, HITLStatus.REJECTED, HITLStatus.OVERRIDDEN] },
       }).select('status').lean(),
-      HITLReview.countDocuments({ status: HITLStatus.PENDING }),
+      HITLReview.countDocuments({ status: HITLStatus.PENDING, ...globalOrOrgFilter(req) }),
     ]);
 
     const overrideCount = weekReviews.filter((r) => r.status === HITLStatus.OVERRIDDEN).length;
@@ -98,7 +99,10 @@ export async function getQueue(req: Request, res: Response, next: NextFunction) 
     const priority = req.query.priority as HITLPriority | undefined;
     const status   = (req.query.status as HITLStatus | undefined) ?? HITLStatus.PENDING;
 
-    const result = await hitlService.listReviews({ priority, status, page, limit });
+    const result = await hitlService.listReviews({
+      priority, status, page, limit,
+      orgFilter: globalOrOrgFilter(req),
+    });
     res.json(result);
   } catch (err) { next(err); }
 }

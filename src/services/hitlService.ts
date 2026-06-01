@@ -27,12 +27,13 @@ async function populateReview(reviewId: mongoose.Types.ObjectId | string) {
 // ── List reviews ──────────────────────────────────────────────────────────────
 
 export async function listReviews(opts: {
-  priority?: HITLPriority;
-  status?:   HITLStatus;
-  page:      number;
-  limit:     number;
+  priority?:  HITLPriority;
+  status?:    HITLStatus;
+  page:       number;
+  limit:      number;
+  orgFilter?: Record<string, unknown>;
 }) {
-  const filter: FilterQuery<typeof HITLReview> = {};
+  const filter: FilterQuery<typeof HITLReview> = { ...(opts.orgFilter ?? {}) };
   if (opts.priority) filter.priority = opts.priority;
   if (opts.status)   filter.status   = opts.status;
 

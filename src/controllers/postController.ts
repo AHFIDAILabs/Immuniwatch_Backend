@@ -7,7 +7,7 @@ import { HITLReview }    from '../models/HITLReview';
 import { Post }          from '../models/Post';
 import { PostPlatform, PostLanguage, AuthenticatedRequest, AuditAction } from '../types';
 import { AppError }      from '../utils/AppError';
-import { orgFilter }     from '../middlewares/auth';
+import { globalOrOrgFilter } from '../middlewares/auth';
 import { classifyPost }  from '../services/classificationService';
 import { publishRawPost } from '../utils/kafkaProducer';
 
@@ -45,7 +45,7 @@ export async function ingestPost(req: Request, res: Response, next: NextFunction
 export async function archivePost(req: Request, res: Response, next: NextFunction) {
   try {
     const { user } = req as AuthenticatedRequest;
-    const post = await Post.findById(req.params.id);
+    const post = await Post.findOne({ _id: req.params.id, ...globalOrOrgFilter(req) });
     if (!post) throw new AppError(404, 'NOT_FOUND', 'Post not found');
     if (post.archivedAt) return res.json({ message: 'Already archived', post });
 
@@ -77,7 +77,7 @@ export async function similarCount(req: Request, res: Response, next: NextFuncti
 
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const pipeline = [
-      { $match: { createdAt: { $gte: since } } },
+      { $match: { createdAt: { $gte: since }, ...globalOrOrgFilter(req) } },
       { $lookup: { from: 'classifications', localField: '_id', foreignField: 'postId', as: 'cls' } },
       { $unwind: '$cls' },
       { $match: { 'cls.label': cls.label, _id: { $ne: cls.postId } } },
@@ -109,8 +109,9 @@ export async function listPosts(req: Request, res: Response, next: NextFunction)
     const search   = req.query.search as string | undefined;
     const labeled  = req.query.labeled as string | undefined;  // 'true' | 'false'
 
-    // Build base post filter (org-scoped)
-    const matchPost: Record<string, unknown> = { ...orgFilter(req) };
+    // ML-ingested posts (Bluesky/YouTube) have no organizationId — they are
+    // platform-wide and all org users should see them alongside their own posts.
+    const matchPost: Record<string, unknown> = { ...globalOrOrgFilter(req) };
     if (platform) matchPost.platform = platform;
     if (language) matchPost.language = language;
     if (search?.trim()) matchPost.$text = { $search: search.trim() };

@@ -11,8 +11,8 @@ router.use(authenticate);
 // All roles can read settings (needed by every page for alert thresholds)
 router.get("/", settings.getSettings);
 
-// Only supervisors and super_admins can change settings
-const admins = authorize(UserRole.SUPERVISOR, UserRole.SUPER_ADMIN);
+// org_admin, supervisor, and super_admin can change settings
+const admins = authorize(UserRole.ORG_ADMIN, UserRole.SUPERVISOR, UserRole.SUPER_ADMIN);
 
 const updateSettingsSchema = z.object({
   body: z

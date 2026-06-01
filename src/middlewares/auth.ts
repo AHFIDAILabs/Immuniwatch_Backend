@@ -40,10 +40,31 @@ export function authorize(...roles: UserRole[]) {
   };
 }
 
-/** Returns a MongoDB filter that scopes queries to the requesting user's org.
- *  super_admin sees all data (no filter). All others see only their org. */
+/** Strict org filter — returns only the user's org data.
+ *  super_admin gets no filter (sees everything). */
 export function orgFilter(req: Request): Record<string, unknown> {
   const { user } = req as AuthenticatedRequest;
   if (user.role === UserRole.SUPER_ADMIN) return {};
   return { organizationId: user.organizationId ?? null };
+}
+
+/**
+ * Loose filter for shared platform data (ML-ingested posts, HITL reviews).
+ * The ML live feed creates posts with NO organizationId — they are global
+ * platform posts that all org users should see alongside their own org's data.
+ *
+ * Returns:
+ *   super_admin → {} (all data)
+ *   org user    → { $or: [{ organizationId: orgId }, { organizationId: null }, { organizationId: {$exists:false} }] }
+ */
+export function globalOrOrgFilter(req: Request): Record<string, unknown> {
+  const { user } = req as AuthenticatedRequest;
+  if (user.role === UserRole.SUPER_ADMIN) return {};
+  return {
+    $or: [
+      { organizationId: user.organizationId },
+      { organizationId: null },
+      { organizationId: { $exists: false } },
+    ],
+  };
 }
