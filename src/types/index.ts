@@ -4,10 +4,11 @@ import { Types } from 'mongoose';
 // ── Enums ─────────────────────────────────────────────────────────────────────
 
 export enum UserRole {
-  ANALYST = 'analyst',
+  ANALYST        = 'analyst',
   SENIOR_ANALYST = 'senior_analyst',
-  SUPERVISOR = 'supervisor',
-  SUPER_ADMIN = 'super_admin',
+  SUPERVISOR     = 'supervisor',
+  ORG_ADMIN      = 'org_admin',    // health-center administrator
+  SUPER_ADMIN    = 'super_admin',  // platform operator — no org
 }
 
 export enum PostPlatform {
@@ -99,8 +100,9 @@ export enum RetrainingStatus {
 
 export interface AuthenticatedRequest extends Request {
   user: {
-    id: string;
-    role: UserRole;
+    id:             string;
+    role:           UserRole;
+    organizationId: string | null;  // null for super_admin (platform-level)
   };
 }
 

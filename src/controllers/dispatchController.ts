@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { HITLReview } from '../models/HITLReview';
-import { HITLStatus } from '../types';
+import { HITLStatus, AuthenticatedRequest } from '../types';
+import * as mlClient from '../services/mlClient';
+import { logger } from '../utils/logger';
 
 export async function getDispatchStats(_req: Request, res: Response, next: NextFunction) {
   try {
@@ -84,5 +86,75 @@ export async function listDispatches(req: Request, res: Response, next: NextFunc
     });
 
     res.json({ data, total });
+  } catch (err) { next(err); }
+}
+
+// ── Counter-narrative ─────────────────────────────────────────────────────────
+
+/**
+ * GET /dispatch/counter-narrative?postId=<id>
+ * Returns the ML-generated counter-narrative for a specific post, or null
+ * when the ML endpoint is not yet live or no counter-narrative was generated.
+ */
+export async function getCounterNarrative(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { postId } = req.query as { postId?: string };
+
+    const pending = await mlClient.getCounterNarrativePending();
+    const item    = postId
+      ? pending.find((p) => p.post_id === postId) ?? null
+      : null;
+
+    res.json({
+      available:        item !== null,
+      postId:           postId ?? null,
+      counterNarrative: item?.counter_narrative ?? null,
+      platform:         item?.platform ?? null,
+    });
+  } catch (err) { next(err); }
+}
+
+/**
+ * POST /dispatch/counter-narrative/:postId/deploy
+ * Body: { approvedText: string }
+ * Deploys the approved counter-narrative via the ML service, which posts it to
+ * the original platform tagging the original author.
+ */
+export async function deployCounterNarrative(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { postId } = req.params;
+    const { approvedText } = req.body as { approvedText: string };
+
+    if (!approvedText?.trim()) {
+      return res.status(400).json({ code: 'MISSING_TEXT', message: 'approvedText is required' });
+    }
+
+    // Update the HITL review with the final approved response text
+    await HITLReview.findOneAndUpdate(
+      { postId },
+      { $set: { approvedResponse: approvedText.trim() } },
+    );
+
+    // Deploy to platform via ML service (gracefully no-ops if endpoint not yet live)
+    await mlClient.deployCounterNarrative(postId, approvedText.trim());
+
+    logger.info(`[counter-narrative] deployed post=${postId}`);
+    res.json({ success: true, postId, message: 'Counter-narrative deployed successfully' });
+  } catch (err) { next(err); }
+}
+
+/**
+ * POST /dispatch/counter-narrative/:postId/skip
+ * Moderator chose not to reply — signals the ML service to skip this post's
+ * counter-narrative.
+ */
+export async function skipCounterNarrative(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { postId } = req.params;
+
+    await mlClient.skipCounterNarrative(postId);
+
+    logger.info(`[counter-narrative] skipped post=${postId}`);
+    res.json({ success: true, postId, message: 'Counter-narrative skipped' });
   } catch (err) { next(err); }
 }

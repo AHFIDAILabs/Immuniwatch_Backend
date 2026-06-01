@@ -85,11 +85,27 @@ export interface MLClassifyResponse {
   entropy: number;
   model_version: string;
   language?: string;
-  state?: string; // Nigerian state extracted from post, if detected
+  state?: string;
   alternatives: MLAlternative[];
   processing_ms: number;
   kb_evidence: MLKbEvidence[];
   fallback?: boolean;
+  counter_response_queued?: boolean; // true when ML auto-generated a counter-narrative
+}
+
+// ── Counter-narrative ─────────────────────────────────────────────────────────
+
+export interface MLCounterNarrativeItem {
+  post_id:           string;
+  platform:          string;
+  content_snippet?:  string;
+  counter_narrative: string;   // ML-generated counter-narrative text
+  created_at?:       string;
+  status?:           'pending' | 'deployed' | 'skipped';
+}
+
+export interface MLCounterNarrativeDeployPayload {
+  approved_text: string;
 }
 
 // ── Batch classify ────────────────────────────────────────────────────────────

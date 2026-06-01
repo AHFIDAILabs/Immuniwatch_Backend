@@ -520,3 +520,83 @@ export async function getRecentPosts(): Promise<MLRecentResponse> {
 export function isMockMode(): boolean {
   return config.mlService.mockMode;
 }
+
+// ── Counter-narrative ─────────────────────────────────────────────────────────
+// These endpoints activate when the ML service team enables them on HuggingFace.
+// Until then every call degrades gracefully: pending returns [], deploy/skip log
+// a warning and resolve without throwing (so the HITL approve flow is unaffected).
+
+import {
+  MLCounterNarrativeItem,
+  MLCounterNarrativeDeployPayload,
+} from '../types/ml.types';
+
+/**
+ * Fetch all misinformation posts that have a ML-generated counter-narrative
+ * waiting for moderator review. Returns [] if the endpoint is not yet live.
+ */
+export async function getCounterNarrativePending(): Promise<MLCounterNarrativeItem[]> {
+  if (config.mlService.mockMode) return [];
+  try {
+    const { data } = await http.get<MLCounterNarrativeItem[]>('/counter-narrative/pending', {
+      timeout: 10_000,
+    });
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    if (status === 404) {
+      // Endpoint not yet deployed on the ML service — degrade silently
+      return [];
+    }
+    logger.warn(`mlClient.getCounterNarrativePending: ${(err as Error).message}`);
+    return [];
+  }
+}
+
+/**
+ * Deploy an approved counter-narrative to the original platform via the ML service.
+ * The ML service tags the original poster and posts the reply.
+ */
+export async function deployCounterNarrative(
+  postId:       string,
+  approvedText: string,
+): Promise<void> {
+  if (config.mlService.mockMode) {
+    logger.info(`[mock] counter-narrative deployed for post=${postId}`);
+    return;
+  }
+  try {
+    await http.post<void>(
+      `/counter-narrative/${postId}/deploy`,
+      { approved_text: approvedText } as MLCounterNarrativeDeployPayload,
+      { timeout: 15_000 },
+    );
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    if (status === 404) {
+      logger.warn(`mlClient.deployCounterNarrative: endpoint not yet live — post=${postId}`);
+      return;  // Non-fatal: the HITL review is already approved in our DB
+    }
+    throw err;
+  }
+}
+
+/**
+ * Skip a counter-narrative — moderator decided not to reply to this post.
+ */
+export async function skipCounterNarrative(postId: string): Promise<void> {
+  if (config.mlService.mockMode) {
+    logger.info(`[mock] counter-narrative skipped for post=${postId}`);
+    return;
+  }
+  try {
+    await http.post<void>(`/counter-narrative/${postId}/skip`, {}, { timeout: 10_000 });
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    if (status === 404) {
+      logger.warn(`mlClient.skipCounterNarrative: endpoint not yet live — post=${postId}`);
+      return;
+    }
+    throw err;
+  }
+}

@@ -167,6 +167,7 @@ export async function classifyPost(postId: string): Promise<{
       kbEvidence: response.kb_evidence,
       processingMs: response.processing_ms,
       fallback: false,
+      counterResponseQueued: response.counter_response_queued ?? false,
     });
 
     // High-confidence factual predictions skip HITL — auto-approved

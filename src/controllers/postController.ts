@@ -7,6 +7,7 @@ import { HITLReview }    from '../models/HITLReview';
 import { Post }          from '../models/Post';
 import { PostPlatform, PostLanguage, AuthenticatedRequest, AuditAction } from '../types';
 import { AppError }      from '../utils/AppError';
+import { orgFilter }     from '../middlewares/auth';
 import { classifyPost }  from '../services/classificationService';
 import { publishRawPost } from '../utils/kafkaProducer';
 
@@ -108,8 +109,8 @@ export async function listPosts(req: Request, res: Response, next: NextFunction)
     const search   = req.query.search as string | undefined;
     const labeled  = req.query.labeled as string | undefined;  // 'true' | 'false'
 
-    // Build base post filter
-    const matchPost: Record<string, unknown> = {};
+    // Build base post filter (org-scoped)
+    const matchPost: Record<string, unknown> = { ...orgFilter(req) };
     if (platform) matchPost.platform = platform;
     if (language) matchPost.language = language;
     if (search?.trim()) matchPost.$text = { $search: search.trim() };

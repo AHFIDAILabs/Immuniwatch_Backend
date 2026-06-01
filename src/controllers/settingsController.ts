@@ -1,25 +1,17 @@
 // settingsController — GET and PATCH /settings
-//
-// GET returns the merged document: DB values take precedence, but every field
-// also includes its config.ts default so the response is always complete.
-// Also returns read-only system_info derived from live config so the frontend
-// shows the real ML service URL, not a hardcoded string.
-//
-// PATCH does a partial update — only fields present in the request body are
-// changed. Unknown fields are ignored (validated by Zod schema in settingsRoutes).
+// Per-org settings with platform defaults fallback.
+// _key: 'platform' for super_admin; 'org_<id>' for org users.
 
 import { Request, Response, NextFunction } from 'express';
 
-import { AppSettings }       from '../models/AppSettings';
-import { config }            from '../config';
-import * as mlClient         from '../services/mlClient';
-import { AuthenticatedRequest } from '../types';
+import { AppSettings }          from '../models/AppSettings';
+import { config }               from '../config';
+import * as mlClient            from '../services/mlClient';
+import { AuthenticatedRequest, UserRole } from '../types';
 
-// Read-only system info — derived from live config, never editable
 async function buildSystemInfo() {
   let modelVersion = 'unknown';
   let mlStatus: 'ok' | 'unavailable' | 'degraded' = 'unavailable';
-
   try {
     const health = await Promise.race([
       mlClient.getHealth(),
@@ -30,11 +22,11 @@ async function buildSystemInfo() {
   } catch { /* non-fatal */ }
 
   return {
-    region:          'Nigeria (Lagos · AF)',
-    organisation:    'NPHCDA',
-    backendVersion:  'v1.4.2',
-    frontendVersion: 'v1.4.2',
-    mlServiceUrl:    config.mlService.url,   // real URL from .env
+    region:          'Nigeria',
+    organisation:    'ImmuniWatch Platform',
+    backendVersion:  'v1.5.0',
+    frontendVersion: 'v1.5.0',
+    mlServiceUrl:    config.mlService.url,
     mlServiceStatus: mlStatus,
     mlModelVersion:  modelVersion,
     mockMode:        mlClient.isMockMode(),
@@ -42,38 +34,50 @@ async function buildSystemInfo() {
   };
 }
 
+function settingsKey(req: Request): string {
+  const { user } = req as AuthenticatedRequest;
+  return user.role === UserRole.SUPER_ADMIN ? 'platform' : `org_${user.organizationId ?? 'platform'}`;
+}
+
+const DEFAULTS = {
+  surgePosts:            200,
+  hitlAutoEscalateAbove: 85,
+  psiDriftAlert:         0.20,
+  overrideRateAlert:     25,
+  macroF1Target:         0.80,
+  inferenceP95Ms:        200,
+  feedbackQueueMax:      5000,
+  notifEmail:            '',
+};
+
 export async function getSettings(req: Request, res: Response, next: NextFunction) {
   try {
+    const key = settingsKey(req);
     const [stored, systemInfo] = await Promise.all([
-      AppSettings.findOne({ _key: 'singleton' }).lean(),
+      AppSettings.findOne({ _key: key }).lean(),
       buildSystemInfo(),
     ]);
 
-    // If no settings have been saved yet, return schema defaults
-    const defaults = {
-      surgePosts:            200,
-      hitlAutoEscalateAbove: 85,
-      psiDriftAlert:         0.20,
-      overrideRateAlert:     25,
-      macroF1Target:         0.80,
-      inferenceP95Ms:        200,
-      feedbackQueueMax:      5000,
-      notifEmail:            '',
-    };
+    // Org settings inherit from platform defaults for any unset field
+    let platformDefaults = DEFAULTS;
+    if (key !== 'platform') {
+      const platform = await AppSettings.findOne({ _key: 'platform' }).lean();
+      if (platform) platformDefaults = { ...DEFAULTS, ...platform };
+    }
 
-    res.json({
-      ...(stored ?? defaults),
-      systemInfo,
-    });
+    res.json({ ...(stored ?? platformDefaults), systemInfo });
   } catch (err) { next(err); }
 }
 
 export async function updateSettings(req: Request, res: Response, next: NextFunction) {
   try {
+    const key = settingsKey(req);
+    const { user } = req as AuthenticatedRequest;
+
     const [updated, systemInfo] = await Promise.all([
       AppSettings.findOneAndUpdate(
-        { _key: 'singleton' },
-        { $set: req.body },
+        { _key: key },
+        { $set: { ...req.body, organizationId: user.organizationId ?? undefined } },
         { upsert: true, new: true, runValidators: true },
       ).lean(),
       buildSystemInfo(),

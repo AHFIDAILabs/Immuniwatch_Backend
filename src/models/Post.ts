@@ -2,18 +2,19 @@ import mongoose, { Document, Schema, Types } from 'mongoose';
 import { PostPlatform, PostLanguage } from '../types';
 
 export interface IPost extends Document {
-  externalId?: string;
-  platform: PostPlatform;
-  content: string;
-  author?: string;
-  url?: string;
-  language: PostLanguage;
-  postedAt?: Date;
-  ingestedAt: Date;
-  metadata?: Record<string, unknown>;
-  isProcessed: boolean;
-  archivedAt?: Date;
-  archivedBy?: Types.ObjectId;
+  externalId?:    string;
+  platform:       PostPlatform;
+  content:        string;
+  author?:        string;
+  url?:           string;
+  language:       PostLanguage;
+  postedAt?:      Date;
+  ingestedAt:     Date;
+  metadata?:      Record<string, unknown>;
+  isProcessed:    boolean;
+  archivedAt?:    Date;
+  archivedBy?:    Types.ObjectId;
+  organizationId?: Types.ObjectId;
 }
 
 const postSchema = new Schema<IPost>(
@@ -35,9 +36,10 @@ const postSchema = new Schema<IPost>(
     postedAt: { type: Date },
     ingestedAt: { type: Date, default: Date.now },
     metadata: { type: Schema.Types.Mixed },
-    isProcessed: { type: Boolean, default: false },
-    archivedAt:  { type: Date },
-    archivedBy:  { type: Schema.Types.ObjectId, ref: 'User' },
+    isProcessed:    { type: Boolean, default: false },
+    archivedAt:     { type: Date },
+    archivedBy:     { type: Schema.Types.ObjectId, ref: 'User' },
+    organizationId: { type: Schema.Types.ObjectId, ref: 'Organization' },
   },
   { timestamps: true }
 );

@@ -2,46 +2,47 @@ import mongoose, { Document, Schema } from 'mongoose';
 import { PostLanguage, ObjectId } from '../types';
 
 export interface IKnowledgeBase extends Document {
-  title: string;
-  content: string;
-  summary?: string;
-  source: string;
-  sourceDate?: Date;
-  language: PostLanguage;
-  cloudinaryUrl?: string;
+  title:               string;
+  content:             string;
+  summary?:            string;
+  source:              string;
+  sourceDate?:         Date;
+  language:            PostLanguage;
+  cloudinaryUrl?:      string;
   cloudinaryPublicId?: string;
-  embeddingVector?: number[];
-  embedded: boolean;
-  confidenceScore: number;
-  tags: string[];
-  createdBy: ObjectId;
+  embeddingVector?:    number[];
+  embedded:            boolean;
+  confidenceScore:     number;
+  tags:                string[];
+  createdBy:           ObjectId;
+  organizationId?:     ObjectId;  // null = global/platform KB doc (super_admin managed)
 }
 
 const knowledgeBaseSchema = new Schema<IKnowledgeBase>(
   {
-    title: { type: String, required: true, trim: true },
+    title:   { type: String, required: true, trim: true },
     content: { type: String, required: true },
     summary: { type: String },
-    source: { type: String, required: true },
+    source:  { type: String, required: true },
     sourceDate: { type: Date },
-    language: {
-      type: String,
-      enum: Object.values(PostLanguage),
-      default: PostLanguage.ENGLISH,
-    },
-    cloudinaryUrl: { type: String },
+    language: { type: String, enum: Object.values(PostLanguage), default: PostLanguage.ENGLISH },
+    cloudinaryUrl:      { type: String },
     cloudinaryPublicId: { type: String },
-    embeddingVector: { type: [Number], select: false },
-    embedded: { type: Boolean, default: false },
-    confidenceScore: { type: Number, default: 0.8, min: 0, max: 1 },
-    tags: [{ type: String, trim: true }],
-    createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    embeddingVector:    { type: [Number], select: false },
+    embedded:           { type: Boolean, default: false },
+    confidenceScore:    { type: Number, default: 0.8, min: 0, max: 1 },
+    tags:               [{ type: String, trim: true }],
+    createdBy:          { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    organizationId:     { type: Schema.Types.ObjectId, ref: 'Organization' },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-knowledgeBaseSchema.index({ content: 'text', title: 'text' }, { default_language: 'none', language_override: 'text_lang' });
-knowledgeBaseSchema.index({ embedded: 1 });
+knowledgeBaseSchema.index(
+  { content: 'text', title: 'text' },
+  { default_language: 'none', language_override: 'text_lang' },
+);
+knowledgeBaseSchema.index({ organizationId: 1, embedded: 1 });
 knowledgeBaseSchema.index({ tags: 1 });
 
 export const KnowledgeBase = mongoose.model<IKnowledgeBase>('KnowledgeBase', knowledgeBaseSchema);

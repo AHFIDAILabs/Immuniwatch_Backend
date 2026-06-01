@@ -19,7 +19,11 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
   try {
     const payload = verifyToken(token);
     if (payload.type !== 'access') return next(new AppError(401, 'Invalid token type', 'UNAUTHORIZED'));
-    (req as AuthenticatedRequest).user = { id: payload.sub, role: payload.role as UserRole };
+    (req as AuthenticatedRequest).user = {
+      id:             payload.sub,
+      role:           payload.role as UserRole,
+      organizationId: payload.organizationId ?? null,
+    };
     next();
   } catch (err) {
     next(err);
@@ -34,4 +38,12 @@ export function authorize(...roles: UserRole[]) {
     }
     next();
   };
+}
+
+/** Returns a MongoDB filter that scopes queries to the requesting user's org.
+ *  super_admin sees all data (no filter). All others see only their org. */
+export function orgFilter(req: Request): Record<string, unknown> {
+  const { user } = req as AuthenticatedRequest;
+  if (user.role === UserRole.SUPER_ADMIN) return {};
+  return { organizationId: user.organizationId ?? null };
 }

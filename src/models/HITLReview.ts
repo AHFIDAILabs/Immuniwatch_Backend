@@ -2,20 +2,21 @@ import mongoose, { Document, Schema } from 'mongoose';
 import { HITLPriority, HITLStatus, ClassificationLabel, ObjectId } from '../types';
 
 export interface IHITLReview extends Document {
-  postId: ObjectId;
+  postId:           ObjectId;
   classificationId: ObjectId;
-  priority: HITLPriority;
-  status: HITLStatus;
-  assignedTo?: ObjectId;
-  reviewedBy?: ObjectId;
-  reviewedAt?: Date;
-  notes?: string;
-  reviewerNote?: string;
+  priority:         HITLPriority;
+  status:           HITLStatus;
+  assignedTo?:      ObjectId;
+  reviewedBy?:      ObjectId;
+  reviewedAt?:      Date;
+  notes?:           string;
+  reviewerNote?:    string;
   overriddenLabel?: ClassificationLabel;
-  proposedResponse?: string;
-  approvedResponse?: string;
-  dispatchedAt?: Date;
-  dispatchStatus?: 'pending' | 'sent' | 'retrying' | 'failed';
+  proposedResponse?:  string;
+  approvedResponse?:  string;
+  dispatchedAt?:      Date;
+  dispatchStatus?:    'pending' | 'sent' | 'retrying' | 'failed';
+  organizationId?:    ObjectId;
 }
 
 const hitlReviewSchema = new Schema<IHITLReview>(
@@ -43,11 +44,9 @@ const hitlReviewSchema = new Schema<IHITLReview>(
     },
     proposedResponse: { type: String },
     approvedResponse: { type: String },
-    dispatchedAt: { type: Date },
-    dispatchStatus: {
-      type: String,
-      enum: ['pending', 'sent', 'retrying', 'failed'],
-    },
+    dispatchedAt:   { type: Date },
+    dispatchStatus: { type: String, enum: ['pending', 'sent', 'retrying', 'failed'] },
+    organizationId: { type: Schema.Types.ObjectId, ref: 'Organization' },
   },
   { timestamps: true }
 );

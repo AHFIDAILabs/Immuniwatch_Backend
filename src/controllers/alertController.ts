@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import { Alert } from '../models/Alert';
-import { AuthenticatedRequest, AlertSeverity, AlertTriggerType } from '../types';
+import { AuthenticatedRequest, AlertSeverity } from '../types';
+import { orgFilter } from '../middlewares/auth';
 
 export async function listAlerts(req: Request, res: Response, next: NextFunction) {
   try {
@@ -11,8 +12,8 @@ export async function listAlerts(req: Request, res: Response, next: NextFunction
       ? req.query.resolved === 'true'
       : undefined;
 
-    const filter: Record<string, unknown> = {};
-    if (severity)            filter.severity = severity;
+    const filter: Record<string, unknown> = { ...orgFilter(req) };
+    if (severity)               filter.severity  = severity;
     if (resolved !== undefined) filter.isResolved = resolved;
 
     const [alerts, total] = await Promise.all([
@@ -27,8 +28,10 @@ export async function listAlerts(req: Request, res: Response, next: NextFunction
 export async function resolveAlert(req: Request, res: Response, next: NextFunction) {
   try {
     const { user } = req as AuthenticatedRequest;
-    const alert = await Alert.findByIdAndUpdate(
-      req.params.id,
+    const filter   = { _id: req.params.id, ...orgFilter(req) };
+
+    const alert = await Alert.findOneAndUpdate(
+      filter,
       { isResolved: true, resolvedAt: new Date(), resolvedBy: user.id },
       { new: true },
     );

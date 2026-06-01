@@ -8,15 +8,18 @@ import * as user from '../controllers/userController';
 const router = Router();
 router.use(authenticate);
 
-// ── Read — supervisor + super_admin ──────────────────────────────────────────
-router.get('/',                   authorize(UserRole.SUPERVISOR, UserRole.SUPER_ADMIN), user.listUsers);
-router.get('/:id',                authorize(UserRole.SUPERVISOR, UserRole.SUPER_ADMIN), user.getUser);
-router.get('/:id/feedback-stats', authorize(UserRole.SUPERVISOR, UserRole.SUPER_ADMIN), user.getFeedbackStats);
+const managers = authorize(UserRole.ORG_ADMIN, UserRole.SUPERVISOR, UserRole.SUPER_ADMIN);
+const admins   = authorize(UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN);
 
-// ── Write — super_admin only ─────────────────────────────────────────────────
-router.post  ('/',                         authorize(UserRole.SUPER_ADMIN), validate(inviteUserSchema),    user.inviteUser);
-router.patch ('/:id',                      authorize(UserRole.SUPER_ADMIN), validate(updateUserSchema),    user.updateUser);
-router.patch ('/:id/reset-password',       authorize(UserRole.SUPER_ADMIN), validate(resetPasswordSchema), user.resetPassword);
-router.delete('/:id',                      authorize(UserRole.SUPER_ADMIN),                                user.deleteUser);
+// ── Read — supervisor/org_admin/super_admin ───────────────────────────────────
+router.get('/',                   managers, user.listUsers);
+router.get('/:id',                managers, user.getUser);
+router.get('/:id/feedback-stats', managers, user.getFeedbackStats);
+
+// ── Write — org_admin/super_admin only ────────────────────────────────────────
+router.post  ('/',                    admins, validate(inviteUserSchema),    user.inviteUser);
+router.patch ('/:id',                 admins, validate(updateUserSchema),    user.updateUser);
+router.patch ('/:id/reset-password',  admins, validate(resetPasswordSchema), user.resetPassword);
+router.delete('/:id',                 admins,                                user.deleteUser);
 
 export default router;

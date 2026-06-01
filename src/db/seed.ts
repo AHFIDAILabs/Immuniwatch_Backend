@@ -1,68 +1,65 @@
 /**
- * Seed script — bootstraps the database with the minimum required data:
- *   • One super admin account (all other users are created via the app UI)
- *   • Five WHO/NPHCDA/NCDC knowledge-base documents
+ * Seed script — bootstraps the platform with minimum required data:
+ *   • One super admin (platform-level, no org)
+ *   • Platform-level KB documents (WHO/NPHCDA/NCDC advisories)
+ *   • Platform AppSettings defaults
  *
- * Usage:
- *   npm run seed
+ * NOTE: Health center organizations and their users are created via the app UI
+ * by the super admin — not seeded here.
  *
- * WARNING: clears ALL existing data before seeding.
+ * Usage:  npm run seed
  */
 
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import mongoose from 'mongoose';
 
-import { config } from '../config';
-import { User } from '../models/User';
-import { Post } from '../models/Post';
-import { Classification } from '../models/Classification';
-import { HITLReview } from '../models/HITLReview';
-import { KnowledgeBase } from '../models/KnowledgeBase';
-import { Alert } from '../models/Alert';
-import { ModelMetrics } from '../models/ModelMetrics';
+import { config }          from '../config';
+import { User }            from '../models/User';
+import { Post }            from '../models/Post';
+import { Classification }  from '../models/Classification';
+import { HITLReview }      from '../models/HITLReview';
+import { KnowledgeBase }   from '../models/KnowledgeBase';
+import { Alert }           from '../models/Alert';
+import { ModelMetrics }    from '../models/ModelMetrics';
 import { RetrainingHistory } from '../models/RetrainingHistory';
+import { Organization }    from '../models/Organization';
+import { AppSettings }     from '../models/AppSettings';
 import { UserRole, PostLanguage } from '../types';
-import { logger } from '../utils/logger';
+import { logger }          from '../utils/logger';
 
-// ── Reference KB documents ────────────────────────────────────────────────────
-// These are real WHO/NPHCDA/NCDC advisories used as evidence by the classifier.
+// ── Global KB documents (visible to all orgs) ─────────────────────────────────
 
 const KB_DOCS = [
   {
-    title: 'NPHCDA Advisory — Jigi ta (MenA) vaccine safety summary (Apr 2024)',
-    source: 'NPHCDA',
+    title:    'NPHCDA Advisory — Jigi ta (MenA) vaccine safety summary (Apr 2024)',
+    source:   'NPHCDA',
     language: PostLanguage.HAUSA,
-    content:
-      'Jigi ta (MenA) vaccine has been reviewed by 14 independent studies. WHO and NPHCDA confirm no association with infertility. The vaccine is safe and effective for preventing meningitis A in Nigeria.',
+    content:  'Jigi ta (MenA) vaccine has been reviewed by 14 independent studies. WHO and NPHCDA confirm no association with infertility. The vaccine is safe and effective for preventing meningitis A in Nigeria.',
   },
   {
-    title: 'WHO position paper — HPV vaccines (2022)',
-    source: 'WHO',
+    title:    'WHO position paper — HPV vaccines (2022)',
+    source:   'WHO',
     language: PostLanguage.ENGLISH,
-    content:
-      'Over 500 million doses of HPV vaccine have been administered globally. Outstanding safety record. No causal link to paralysis or other serious adverse events has been established.',
+    content:  'Over 500 million doses of HPV vaccine have been administered globally. Outstanding safety record. No causal link to paralysis or other serious adverse events has been established.',
   },
   {
-    title: 'NCDC Polio bulletin — cVDPV vs wild poliovirus clarification',
-    source: 'NCDC',
+    title:    'NCDC Polio bulletin — cVDPV vs wild poliovirus clarification',
+    source:   'NCDC',
     language: PostLanguage.ENGLISH,
-    content:
-      'Circulating vaccine-derived poliovirus (cVDPV) occurs only in settings with very low vaccination coverage. The solution is more vaccination, not less. OPV is safe and recommended by WHO.',
+    content:  'Circulating vaccine-derived poliovirus (cVDPV) occurs only in settings with very low vaccination coverage. The solution is more vaccination, not less. OPV is safe and recommended by WHO.',
   },
   {
-    title: 'WHO GPEI — Oral Polio Vaccine safety and efficacy overview',
-    source: 'WHO',
+    title:    'WHO GPEI — Oral Polio Vaccine safety and efficacy overview',
+    source:   'WHO',
     language: PostLanguage.ENGLISH,
-    content:
-      'Oral Polio Vaccine is safe, effective, and has been used for decades. It does not cause polio in healthy children. Nigeria has achieved significant reduction in polio cases through OPV campaigns.',
+    content:  'Oral Polio Vaccine is safe, effective, and has been used for decades. It does not cause polio in healthy children. Nigeria has achieved significant reduction in polio cases through OPV campaigns.',
   },
   {
-    title: 'COVID-19 vaccines: mRNA mechanism explained (NAFDAC)',
-    source: 'NAFDAC',
+    title:    'COVID-19 vaccines: mRNA mechanism explained (NAFDAC)',
+    source:   'NAFDAC',
     language: PostLanguage.ENGLISH,
-    content:
-      'COVID-19 mRNA vaccines do not contain microchips, 5G hardware, or any tracking devices. The mRNA degrades within days and does not alter human DNA. Thoroughly reviewed by NAFDAC before approval.',
+    content:  'COVID-19 mRNA vaccines do not contain microchips, 5G hardware, or any tracking devices. The mRNA degrades within days and does not alter human DNA. Thoroughly reviewed by NAFDAC before approval.',
   },
 ];
 
@@ -81,23 +78,28 @@ async function seed() {
     Alert.deleteMany({}),
     ModelMetrics.deleteMany({}),
     RetrainingHistory.deleteMany({}),
+    Organization.deleteMany({}),
+    AppSettings.deleteMany({}),
   ]);
 
-  // ── Super admin ───────────────────────────────────────────────────────────
-  // The only bootstrapped user. All other accounts are created via the app UI.
+  // ── Super admin (platform-level, no org) ─────────────────────────────────
 
   const passwordHash = await bcrypt.hash('Admin1234$', 12);
-
   const admin = await User.create({
     name:     'Super Admin',
     email:    'admin@immuniwatch.ng',
     role:     UserRole.SUPER_ADMIN,
     password: passwordHash,
   });
+  logger.info('Super admin created — email: admin@immuniwatch.ng  password: Admin1234$');
 
-  logger.info(`Super admin created — email: admin@immuniwatch.ng  password: Admin1234$`);
+  // ── Platform default settings ─────────────────────────────────────────────
 
-  // ── Knowledge base documents ──────────────────────────────────────────────
+  await AppSettings.create({ _key: 'platform' });
+  logger.info('Platform default settings created');
+
+  // ── Global KB documents ───────────────────────────────────────────────────
+  // No organizationId → visible to all orgs + super_admin
 
   await KnowledgeBase.create(
     KB_DOCS.map((d) => ({
@@ -107,9 +109,17 @@ async function seed() {
       embeddingVector: new Array(768).fill(0),
     })),
   );
+  logger.info(`Seeded ${KB_DOCS.length} global KB documents`);
 
-  logger.info(`Seeded ${KB_DOCS.length} KB documents`);
+  logger.info('─────────────────────────────────────────────────────');
   logger.info('Seed complete ✓');
+  logger.info('Next steps:');
+  logger.info('  1. Log in as admin@immuniwatch.ng / Admin1234$');
+  logger.info('  2. Go to Organizations → Create Organization');
+  logger.info('  3. Create an Org Admin for each health center');
+  logger.info('  4. Log in as the Org Admin to create analysts & supervisors');
+  logger.info('─────────────────────────────────────────────────────');
+
   await mongoose.disconnect();
 }
 

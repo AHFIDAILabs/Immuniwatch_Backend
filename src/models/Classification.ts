@@ -23,6 +23,7 @@ export interface IClassification extends Document {
   kbEvidence: IKbEvidence[];
   fallback: boolean;
   processingMs: number;
+  counterResponseQueued?: boolean;  // ML service auto-generated a counter-narrative
 }
 
 const classificationSchema = new Schema<IClassification>(
@@ -57,6 +58,7 @@ const classificationSchema = new Schema<IClassification>(
     ],
     fallback: { type: Boolean, default: false },
     processingMs: { type: Number, default: 0 },
+    counterResponseQueued: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
