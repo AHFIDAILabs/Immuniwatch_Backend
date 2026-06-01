@@ -87,7 +87,8 @@ const schema = z.object({
 const parsed = schema.safeParse({
   nodeEnv: process.env.NODE_ENV,
   port: process.env.PORT,
-  frontendUrl: process.env.FRONTEND_URL,
+  // Coerce empty string → undefined so Zod's .default() fires correctly.
+  frontendUrl: process.env.FRONTEND_URL || undefined,
 
   cookie: {
     secure: process.env.COOKIE_SECURE,
