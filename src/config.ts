@@ -82,6 +82,11 @@ const schema = z.object({
     surgeThreshold: z.coerce.number().default(200),
     analystOverrideRateAlert: z.coerce.number().default(15),
   }),
+
+  groq: z.object({
+    apiKey: z.string().default(''),       // GROQ_API_KEY — set in .env to enable RAG
+    model:  z.string().default('llama3-8b-8192'),
+  }),
 });
 
 const parsed = schema.safeParse({
@@ -141,6 +146,11 @@ const parsed = schema.safeParse({
   alerts: {
     surgeThreshold: process.env.SURGE_THRESHOLD,
     analystOverrideRateAlert: process.env.ANALYST_OVERRIDE_RATE_ALERT,
+  },
+
+  groq: {
+    apiKey: process.env.GROQ_API_KEY || '',
+    model:  process.env.GROQ_MODEL   || 'llama3-8b-8192',
   },
 });
 

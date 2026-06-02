@@ -80,18 +80,29 @@ export async function getMetrics() {
 
     return updated;
   } catch (err) {
-    // Return stale cache rather than throwing — dashboard keeps working
-    if (cached) {
-      logger.warn(
-        `modelHealthService.getMetrics: ML service unavailable, returning stale cache — ${(err as Error).message}`,
-      );
-      return { ...cached, stale: true };
-    }
-    throw new AppError(
-      503,
-      "ML_SERVICE_UNAVAILABLE",
-      "Model metrics unavailable",
+    logger.warn(
+      `modelHealthService.getMetrics: ML service unavailable — ${(err as Error).message}`,
     );
+
+    if (cached) return { ...cached, stale: true };
+
+    // No cache and ML service unavailable — return a minimal placeholder so the
+    // dashboard shows a degraded state rather than a hard error.
+    // The next request (after circuit-breaker reset) will populate the cache.
+    return {
+      _id:            'placeholder',
+      modelVersion:   'unavailable',
+      macroF1:        0,
+      recall:         0,
+      precision:      0,
+      inferenceP95ms: 0,
+      perLanguage:    {},
+      feedbackQueue:  0,
+      promoted:       false,
+      stale:          true,
+      createdAt:      new Date(),
+      updatedAt:      new Date(),
+    };
   }
 }
 

@@ -1,8 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
-import { HITLReview } from '../models/HITLReview';
-import { Post }       from '../models/Post';
+import { Classification } from '../models/Classification';
+import { HITLReview }     from '../models/HITLReview';
+import { Post }           from '../models/Post';
 import { HITLStatus, AuthenticatedRequest } from '../types';
-import * as mlClient from '../services/mlClient';
+import * as mlClient    from '../services/mlClient';
+import { generateCounterNarrative } from '../services/groqService';
 import { logger } from '../utils/logger';
 
 export async function getDispatchStats(_req: Request, res: Response, next: NextFunction) {
@@ -108,18 +110,23 @@ export async function getCounterNarrative(req: Request, res: Response, next: Nex
     const { postId } = req.query as { postId?: string };
     if (!postId) return res.json({ available: false, postId: null });
 
-    // Load the post so we have the ML service's own post_id (externalId)
-    const post = await Post.findById(postId).select('externalId content platform language').lean();
+    const { user } = req as AuthenticatedRequest;
+
+    // Load the post and its classification so we have content + kbEvidence for RAG
+    const [post, cls] = await Promise.all([
+      Post.findById(postId).select('externalId content platform language organizationId').lean(),
+      Classification.findOne({ postId }).select('label confidence kbEvidence').lean(),
+    ]);
+
     if (!post) return res.json({ available: false, postId });
 
-    const mlPostId = post.externalId ?? postId;  // fall back to MongoDB ID if no externalId
+    const mlPostId = post.externalId ?? postId;
 
-    // 1. Try to retrieve an already-generated counter-narrative
-    let generated = await mlClient.getCounterNarrativeById(mlPostId);
+    // ── Step 1: Try ML service (GET then POST/generate) ──────────────────────
+    let mlGenerated = await mlClient.getCounterNarrativeById(mlPostId);
 
-    // 2. If not cached, generate one on demand
-    if (!generated) {
-      generated = await mlClient.generateCounterNarrative({
+    if (!mlGenerated) {
+      mlGenerated = await mlClient.generateCounterNarrative({
         post_id:  mlPostId,
         content:  post.content,
         platform: post.platform,
@@ -127,21 +134,47 @@ export async function getCounterNarrative(req: Request, res: Response, next: Nex
       });
     }
 
-    if (!generated) {
-      return res.json({ available: false, postId });
+    if (mlGenerated) {
+      return res.json({
+        available:        true,
+        source:           'ml',
+        postId,
+        short:            mlGenerated.generated_short,
+        medium:           mlGenerated.generated_medium,
+        long:             mlGenerated.generated_long,
+        sources:          mlGenerated.sources ?? [],
+        counterNarrative: mlGenerated.generated_short,
+        platform:         post.platform,
+      });
     }
 
-    res.json({
-      available:       true,
-      postId,
-      short:           generated.generated_short,
-      medium:          generated.generated_medium,
-      long:            generated.generated_long,
-      sources:         generated.sources ?? [],
-      // Keep legacy field for backwards compat
-      counterNarrative: generated.generated_short,
-      platform:        post.platform,
-    });
+    // ── Step 2: Fall back to Groq RAG ────────────────────────────────────────
+    const kbEvidence = (cls?.kbEvidence as Array<{ title: string; snippet: string }> | undefined) ?? [];
+
+    const groqResult = await generateCounterNarrative(
+      post.content,
+      cls?.label ?? 'misinformation',
+      post.language ?? 'en',
+      kbEvidence,
+      user.organizationId,
+    );
+
+    if (groqResult) {
+      return res.json({
+        available:        true,
+        source:           'groq',
+        postId,
+        short:            groqResult.short,
+        medium:           groqResult.medium,
+        long:             groqResult.long,
+        sources:          [],
+        counterNarrative: groqResult.short,
+        platform:         post.platform,
+      });
+    }
+
+    // ── Step 3: Nothing available ─────────────────────────────────────────────
+    res.json({ available: false, postId });
   } catch (err) { next(err); }
 }
 
