@@ -8,7 +8,7 @@ import * as mh from '../controllers/modelHealthController';
 const router = Router();
 router.use(authenticate);
 
-const admins = authorize(UserRole.SUPERVISOR, UserRole.SUPER_ADMIN);
+const admins = authorize(UserRole.SUPERVISOR, UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN);
 
 router.get ('/',                admins, mh.getMetrics);
 router.get ('/f1-trend',        admins, mh.getF1Trend);

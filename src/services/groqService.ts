@@ -72,6 +72,49 @@ const LANG_NAMES: Record<string, string> = {
  * @param kbEvidence    Evidence snippets from the Classification (from ML classify response)
  * @param orgId         Organization ID for KB scoping (optional)
  */
+/** Template-based fallback used when Groq is unavailable or no API key is set. */
+async function templateFallback(
+  postContent: string,
+  label:       string,
+  language:    string,
+  orgId?:      string | null,
+): Promise<CounterNarrativeVersions> {
+  const langName = LANG_NAMES[language] ?? 'English';
+
+  // Fetch the most relevant KB doc for context
+  let kbRef = '';
+  try {
+    const docs = await KnowledgeBase.find({
+      $text: { $search: postContent.slice(0, 150) },
+      ...(orgId ? { $or: [{ organizationId: orgId }, { organizationId: { $exists: false } }] } : {}),
+    }, { score: { $meta: 'textScore' } })
+      .sort({ score: { $meta: 'textScore' } })
+      .select('title source content')
+      .limit(1)
+      .lean();
+
+    if (docs.length > 0) {
+      kbRef = `${docs[0].title} (${docs[0].source})`;
+    } else {
+      // Generic fallback
+      const any = await KnowledgeBase.findOne({}).select('title source').lean();
+      if (any) kbRef = `${any.title} (${any.source})`;
+    }
+  } catch { /* ignore */ }
+
+  const sourceNote = kbRef ? `Source: ${kbRef}. ` : 'Source: WHO/NPHCDA vaccine safety guidelines. ';
+
+  const short = label === 'misinformation'
+    ? `This claim is not accurate. Vaccines approved by NAFDAC and recommended by WHO have been thoroughly tested for safety and efficacy. ${sourceNote}Visit your nearest health center for verified information.`
+    : `This post contains potentially misleading health information. Please consult a qualified health professional or visit your nearest NPHCDA health center for accurate vaccine information.`;
+
+  const medium = `${short}\n\nVaccines go through extensive clinical trials before approval. Nigeria's NAFDAC, WHO, and NPHCDA continuously monitor vaccine safety. If you have concerns, please speak with a registered health worker in your area rather than relying on unverified social media posts.\n\n${sourceNote}`;
+
+  const long = `${medium}\n\nCommon vaccine misconceptions often spread rapidly on social media, but they are rarely supported by scientific evidence. Here is what you should know:\n\n1. All vaccines used in Nigeria are reviewed and approved by NAFDAC before use.\n2. The WHO and NPHCDA monitor vaccine safety on an ongoing basis.\n3. Serious adverse events are extremely rare and are carefully tracked.\n4. Getting vaccinated protects not only you, but also vulnerable members of your community.\n\nIf you or someone you know has questions or concerns about vaccines, please:\n• Visit your nearest Primary Health Care center\n• Call the NPHCDA hotline\n• Speak with a registered nurse or doctor\n\nDo not make health decisions based on unverified information. Your health and the health of your community matters.`;
+
+  return { short: short.slice(0, 280), medium, long };
+}
+
 export async function generateCounterNarrative(
   postContent: string,
   label:       string,
@@ -79,9 +122,10 @@ export async function generateCounterNarrative(
   kbEvidence?: Array<{ title: string; snippet: string }>,
   orgId?:      string | null,
 ): Promise<CounterNarrativeVersions | null> {
+  // If no Groq key, use template fallback so the textarea always has content
   if (!config.groq.apiKey) {
-    logger.debug('groqService: GROQ_API_KEY not set — counter-narrative generation disabled');
-    return null;
+    logger.debug('groqService: GROQ_API_KEY not set — using template fallback');
+    return templateFallback(postContent, label, language, orgId);
   }
 
   const langName = LANG_NAMES[language] ?? 'English';
@@ -162,7 +206,7 @@ Return ONLY a valid JSON object with these exact keys:
       long:   long   || medium || short,
     };
   } catch (err) {
-    logger.warn(`groqService.generateCounterNarrative failed: ${(err as Error).message}`);
-    return null;
+    logger.warn(`groqService.generateCounterNarrative failed: ${(err as Error).message} — using template fallback`);
+    return templateFallback(postContent, label, language, orgId);
   }
 }

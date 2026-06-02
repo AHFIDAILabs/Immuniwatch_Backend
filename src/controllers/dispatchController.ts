@@ -5,6 +5,7 @@ import { Post }           from '../models/Post';
 import { HITLStatus, AuthenticatedRequest } from '../types';
 import * as mlClient    from '../services/mlClient';
 import { generateCounterNarrative } from '../services/groqService';
+import { config } from '../config';
 import { logger } from '../utils/logger';
 
 export async function getDispatchStats(_req: Request, res: Response, next: NextFunction) {
@@ -162,7 +163,7 @@ export async function getCounterNarrative(req: Request, res: Response, next: Nex
     if (groqResult) {
       return res.json({
         available:        true,
-        source:           'groq',
+        source:           config.groq.apiKey ? 'groq' : 'template',
         postId,
         short:            groqResult.short,
         medium:           groqResult.medium,
@@ -173,7 +174,7 @@ export async function getCounterNarrative(req: Request, res: Response, next: Nex
       });
     }
 
-    // ── Step 3: Nothing available ─────────────────────────────────────────────
+    // Groq returned null only if templateFallback itself failed — extremely rare
     res.json({ available: false, postId });
   } catch (err) { next(err); }
 }
