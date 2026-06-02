@@ -20,8 +20,8 @@ const router = Router();
 router.use(authenticate);
 
 router.get ('/',         kb.listDocuments);
-router.post('/',         authorize(UserRole.SENIOR_ANALYST, UserRole.SUPERVISOR, UserRole.SUPER_ADMIN), upload.single('file'), validate(uploadKbSchema), kb.uploadDocument);
-router.delete('/:id',    authorize(UserRole.SUPERVISOR, UserRole.SUPER_ADMIN), kb.deleteDocument);
+router.post('/',         authorize(UserRole.SENIOR_ANALYST, UserRole.SUPERVISOR, UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN), upload.single('file'), validate(uploadKbSchema), kb.uploadDocument);
+router.delete('/:id',    authorize(UserRole.SUPERVISOR, UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN), kb.deleteDocument);
 router.post('/reindex',  authorize(UserRole.SUPER_ADMIN), kb.reindexAll);
 
 export default router;

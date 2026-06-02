@@ -4,6 +4,6 @@ import { UserRole } from '../types';
 import * as audit from '../controllers/auditController';
 
 const router = Router();
-router.get('/', authenticate, authorize(UserRole.SUPERVISOR, UserRole.SUPER_ADMIN), audit.listLogs);
+router.get('/', authenticate, authorize(UserRole.SUPERVISOR, UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN), audit.listLogs);
 
 export default router;
