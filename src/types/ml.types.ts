@@ -99,9 +99,27 @@ export interface MLCounterNarrativeItem {
   post_id:           string;
   platform:          string;
   content_snippet?:  string;
-  counter_narrative: string;   // ML-generated counter-narrative text
+  counter_narrative: string;
   created_at?:       string;
   status?:           'pending' | 'deployed' | 'skipped';
+}
+
+/** POST /counter-narrative/generate */
+export interface MLCounterNarrativeGenerateRequest {
+  post_id:  string;
+  content:  string;
+  platform: string;
+  language: string | null;
+}
+
+/** Response from POST /counter-narrative/generate and GET /counter-narrative/{post_id} */
+export interface MLCounterNarrativeGenerateResponse {
+  post_id:          string;
+  generated_short:  string;   // ≤280 chars — pre-fill the textarea
+  generated_medium: string;   // ≤200 words
+  generated_long:   string;   // ≤500 words
+  sources:          string[];
+  status:           string;
 }
 
 export interface MLCounterNarrativeDeployPayload {

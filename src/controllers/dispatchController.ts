@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { HITLReview } from '../models/HITLReview';
+import { Post }       from '../models/Post';
 import { HITLStatus, AuthenticatedRequest } from '../types';
 import * as mlClient from '../services/mlClient';
 import { logger } from '../utils/logger';
@@ -92,24 +93,54 @@ export async function listDispatches(req: Request, res: Response, next: NextFunc
 // ── Counter-narrative ─────────────────────────────────────────────────────────
 
 /**
- * GET /dispatch/counter-narrative?postId=<id>
- * Returns the ML-generated counter-narrative for a specific post, or null
- * when the ML endpoint is not yet live or no counter-narrative was generated.
+ * GET /dispatch/counter-narrative?postId=<mongoId>
+ *
+ * Flow:
+ *   1. Load the Post from DB to get externalId (ML service post_id), content, platform, language
+ *   2. Try GET /counter-narrative/{externalId} — returns if already generated
+ *   3. If not found, call POST /counter-narrative/generate with the post content
+ *   4. Return all three versions (short ≤280 chars, medium ≤200 words, long ≤500 words)
+ *
+ * Gracefully returns { available: false } if the ML endpoints are not yet live.
  */
 export async function getCounterNarrative(req: Request, res: Response, next: NextFunction) {
   try {
     const { postId } = req.query as { postId?: string };
+    if (!postId) return res.json({ available: false, postId: null });
 
-    const pending = await mlClient.getCounterNarrativePending();
-    const item    = postId
-      ? pending.find((p) => p.post_id === postId) ?? null
-      : null;
+    // Load the post so we have the ML service's own post_id (externalId)
+    const post = await Post.findById(postId).select('externalId content platform language').lean();
+    if (!post) return res.json({ available: false, postId });
+
+    const mlPostId = post.externalId ?? postId;  // fall back to MongoDB ID if no externalId
+
+    // 1. Try to retrieve an already-generated counter-narrative
+    let generated = await mlClient.getCounterNarrativeById(mlPostId);
+
+    // 2. If not cached, generate one on demand
+    if (!generated) {
+      generated = await mlClient.generateCounterNarrative({
+        post_id:  mlPostId,
+        content:  post.content,
+        platform: post.platform,
+        language: post.language ?? null,
+      });
+    }
+
+    if (!generated) {
+      return res.json({ available: false, postId });
+    }
 
     res.json({
-      available:        item !== null,
-      postId:           postId ?? null,
-      counterNarrative: item?.counter_narrative ?? null,
-      platform:         item?.platform ?? null,
+      available:       true,
+      postId,
+      short:           generated.generated_short,
+      medium:          generated.generated_medium,
+      long:            generated.generated_long,
+      sources:         generated.sources ?? [],
+      // Keep legacy field for backwards compat
+      counterNarrative: generated.generated_short,
+      platform:        post.platform,
     });
   } catch (err) { next(err); }
 }

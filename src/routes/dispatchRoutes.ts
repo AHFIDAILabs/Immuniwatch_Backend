@@ -10,11 +10,12 @@ router.use(authenticate);
 router.get('/',      dispatch.listDispatches);
 router.get('/stats', dispatch.getDispatchStats);
 
-// Counter-narrative — all analysts can fetch and deploy
+// Counter-narrative — all analysts (including org_admin) can fetch and deploy
 const allAnalysts = authorize(
   UserRole.ANALYST,
   UserRole.SENIOR_ANALYST,
   UserRole.SUPERVISOR,
+  UserRole.ORG_ADMIN,
   UserRole.SUPER_ADMIN,
 );
 router.get ('/counter-narrative',            allAnalysts, dispatch.getCounterNarrative);

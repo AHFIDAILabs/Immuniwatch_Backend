@@ -528,6 +528,8 @@ export function isMockMode(): boolean {
 
 import {
   MLCounterNarrativeItem,
+  MLCounterNarrativeGenerateRequest,   // used below
+  MLCounterNarrativeGenerateResponse,  // used below
   MLCounterNarrativeDeployPayload,
 } from '../types/ml.types';
 
@@ -572,12 +574,9 @@ export async function deployCounterNarrative(
       { timeout: 15_000 },
     );
   } catch (err) {
-    const status = (err as { response?: { status?: number } })?.response?.status;
-    if (status === 404) {
-      logger.warn(`mlClient.deployCounterNarrative: endpoint not yet live — post=${postId}`);
-      return;  // Non-fatal: the HITL review is already approved in our DB
-    }
-    throw err;
+    // Treat any ML error as "endpoint not yet live" — the approved response
+    // is already saved in MongoDB, so the action is not lost.
+    logger.warn(`mlClient.deployCounterNarrative: ML service unavailable (post=${postId}): ${(err as Error).message}`);
   }
 }
 
@@ -592,11 +591,49 @@ export async function skipCounterNarrative(postId: string): Promise<void> {
   try {
     await http.post<void>(`/counter-narrative/${postId}/skip`, {}, { timeout: 10_000 });
   } catch (err) {
-    const status = (err as { response?: { status?: number } })?.response?.status;
-    if (status === 404) {
-      logger.warn(`mlClient.skipCounterNarrative: endpoint not yet live — post=${postId}`);
-      return;
-    }
-    throw err;
+    logger.warn(`mlClient.skipCounterNarrative: ML service unavailable (post=${postId}): ${(err as Error).message}`);
+  }
+}
+
+/**
+ * Generate a counter-narrative on demand for a given post.
+ * Calls POST /counter-narrative/generate.
+ * Returns null if the endpoint is not yet live.
+ */
+export async function generateCounterNarrative(
+  req: MLCounterNarrativeGenerateRequest,
+): Promise<MLCounterNarrativeGenerateResponse | null> {
+  if (config.mlService.mockMode) return null;
+  try {
+    const { data } = await http.post<MLCounterNarrativeGenerateResponse>(
+      '/counter-narrative/generate',
+      req,
+      { timeout: 30_000 },  // generation can take a few seconds
+    );
+    return data;
+  } catch (err) {
+    logger.warn(`mlClient.generateCounterNarrative: ML service unavailable (post=${req.post_id}): ${(err as Error).message}`);
+    return null;
+  }
+}
+
+/**
+ * Look up a previously generated counter-narrative by its ML service post_id.
+ * Calls GET /counter-narrative/{post_id}.
+ * Returns null if not found or endpoint not yet live.
+ */
+export async function getCounterNarrativeById(
+  postId: string,
+): Promise<MLCounterNarrativeGenerateResponse | null> {
+  if (config.mlService.mockMode) return null;
+  try {
+    const { data } = await http.get<MLCounterNarrativeGenerateResponse>(
+      `/counter-narrative/${postId}`,
+      { timeout: 10_000 },
+    );
+    return data;
+  } catch (err) {
+    logger.warn(`mlClient.getCounterNarrativeById: unavailable (post=${postId}): ${(err as Error).message}`);
+    return null;
   }
 }
