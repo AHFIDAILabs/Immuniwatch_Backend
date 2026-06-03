@@ -118,6 +118,26 @@ export async function uploadDocument(
     newValue:     { title: opts.title, source: opts.source },
   });
 
+  // Sync to ML service ChromaDB (non-blocking — don't fail the upload if ML is down)
+  setImmediate(async () => {
+    try {
+      const mlResult = await mlClient.uploadToKbService({
+        title:    opts.title,
+        content:  extractedText,
+        source:   opts.source,
+        language: opts.language,
+      });
+      if (mlResult) {
+        await KnowledgeBase.findByIdAndUpdate(doc._id, {
+          mlDocId:   mlResult.doc_id,
+          mlIndexed: true,
+        });
+      }
+    } catch (err) {
+      logger.warn(`kbService: ML KB sync failed for doc=${doc._id.toString()}: ${(err as Error).message}`);
+    }
+  });
+
   if (opts.immediate) {
     // Synchronous embedding — used for real-time KB search during classification
     const mlLang = mapLanguage(opts.language);
@@ -210,15 +230,16 @@ async function textFallbackSearch(query: string, topK: number): Promise<KBSearch
 
 // ── reindexAll ────────────────────────────────────────────────────────────────
 
-export async function reindexAll(): Promise<{ processed: number; failed: number; total: number }> {
-  const docs = await KnowledgeBase.find({
-    $or: [{ embedded: false }, { embeddingVector: { $exists: false } }],
-  }).select('_id content language').lean();
+export async function reindexAll(): Promise<{ processed: number; failed: number; total: number; mlSynced: number }> {
+  const docs = await KnowledgeBase.find({})
+    .select('_id title source content language mlDocId mlIndexed')
+    .lean();
 
   let processed = 0;
   let failed    = 0;
-  const BATCH   = 10;
-  const DELAY   = 200;
+  let mlSynced  = 0;
+  const BATCH   = 5;
+  const DELAY   = 300;
 
   for (let i = 0; i < docs.length; i += BATCH) {
     const batch = docs.slice(i, i + BATCH);
@@ -226,16 +247,28 @@ export async function reindexAll(): Promise<{ processed: number; failed: number;
     await Promise.allSettled(
       batch.map(async (doc) => {
         try {
-          const mlLang = mapLanguage((doc.language as PostLanguage) ?? PostLanguage.ENGLISH);
-          const vector = await mlClient.getEmbedding((doc.content as string) ?? '', mlLang);
+          const content = (doc.content as string) ?? '';
+          const mlLang  = mapLanguage((doc.language as PostLanguage) ?? PostLanguage.ENGLISH);
+
+          // 1. Cosine embedding (local vector search)
+          const vector = await mlClient.getEmbedding(content, mlLang);
           if (!isZeroVector(vector)) {
-            await KnowledgeBase.findByIdAndUpdate(doc._id, {
-              embeddingVector: vector,
-              embedded:        true,
-            });
+            await KnowledgeBase.findByIdAndUpdate(doc._id, { embeddingVector: vector, embedded: true });
             processed++;
-          } else {
-            failed++;
+          } else { failed++; }
+
+          // 2. Sync to ML ChromaDB (only if not already indexed or no doc_id stored)
+          if (!doc.mlIndexed || !doc.mlDocId) {
+            const mlResult = await mlClient.uploadToKbService({
+              title:    doc.title as string,
+              content,
+              source:   doc.source as string,
+              language: doc.language as string,
+            });
+            if (mlResult) {
+              await KnowledgeBase.findByIdAndUpdate(doc._id, { mlDocId: mlResult.doc_id, mlIndexed: true });
+              mlSynced++;
+            }
           }
         } catch {
           failed++;
@@ -248,8 +281,8 @@ export async function reindexAll(): Promise<{ processed: number; failed: number;
     }
   }
 
-  logger.info(`reindexAll complete — processed=${processed} failed=${failed} total=${docs.length}`);
-  return { processed, failed, total: docs.length };
+  logger.info(`reindexAll complete — embedded=${processed} mlSynced=${mlSynced} failed=${failed} total=${docs.length}`);
+  return { processed, failed, total: docs.length, mlSynced };
 }
 
 // ── deleteDocument ────────────────────────────────────────────────────────────
@@ -257,6 +290,11 @@ export async function reindexAll(): Promise<{ processed: number; failed: number;
 export async function deleteDocument(docId: string, deletedBy: string): Promise<void> {
   const doc = await KnowledgeBase.findById(docId);
   if (!doc) throw new AppError(404, 'NOT_FOUND', `KB document ${docId} not found`);
+
+  // Remove from ML service ChromaDB (non-fatal if it fails)
+  if (doc.mlDocId) {
+    await mlClient.deleteFromKbService(doc.mlDocId);
+  }
 
   if (doc.cloudinaryPublicId) {
     await cloudinary.uploader.destroy(doc.cloudinaryPublicId as string, { resource_type: 'raw' });

@@ -4,7 +4,7 @@
  * When the ML service counter-narrative endpoint is not yet live, this service
  * generates fact-based counter-narratives using:
  *   - The misinformation post content
- *   - The ML classification label (misinformation / disinformation)
+ *   - The ML classification label (misinformation)
  *   - KB evidence from the Classification document (already retrieved by ML)
  *   - Additional KB documents from MongoDB (text similarity via $text search)
  *
@@ -67,7 +67,7 @@ const LANG_NAMES: Record<string, string> = {
  * Generate counter-narratives in 3 lengths using Groq AI with KB context (RAG).
  *
  * @param postContent   The full misinformation post text
- * @param label         ML classification label ('misinformation' | 'disinformation')
+ * @param label         ML classification label ('misinformation' | 'factual' | 'irrelevant')
  * @param language      Post language code ('en' | 'pcm' | 'ha' | 'yo' | 'ig')
  * @param kbEvidence    Evidence snippets from the Classification (from ML classify response)
  * @param orgId         Organization ID for KB scoping (optional)

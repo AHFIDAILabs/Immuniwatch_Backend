@@ -77,12 +77,22 @@ export async function getOrganization(req: Request, res: Response, next: NextFun
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    // Posts and HITL use a "global OR org" filter because ML-ingested posts
+    // (Bluesky/YouTube) have no organizationId — all orgs should see them in stats.
+    const globalOrOrg = {
+      $or: [
+        { organizationId: orgId },
+        { organizationId: null },
+        { organizationId: { $exists: false } },
+      ],
+    };
+
     const [users, postsToday, postsTotal, hitlPending, hitlTotal, alerts] = await Promise.all([
       User.find({ organizationId: orgId }).select('name email role isActive lastActive').lean(),
-      Post.countDocuments({ organizationId: orgId, createdAt: { $gte: today } }),
-      Post.countDocuments({ organizationId: orgId }),
-      HITLReview.countDocuments({ organizationId: orgId, status: HITLStatus.PENDING }),
-      HITLReview.countDocuments({ organizationId: orgId }),
+      Post.countDocuments({ ...globalOrOrg, createdAt: { $gte: today } }),
+      Post.countDocuments(globalOrOrg),
+      HITLReview.countDocuments({ ...globalOrOrg, status: HITLStatus.PENDING }),
+      HITLReview.countDocuments(globalOrOrg),
       Alert.countDocuments({ organizationId: orgId, isResolved: false }),
     ]);
 

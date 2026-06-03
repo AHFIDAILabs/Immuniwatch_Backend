@@ -29,10 +29,9 @@ export enum PostLanguage {
 
 export enum ClassificationLabel {
   MISINFORMATION = 'misinformation',
-  DISINFORMATION = 'disinformation',
-  FACTUAL = 'factual',
-  IRRELEVANT = 'irrelevant',
-  PENDING = 'pending',
+  FACTUAL        = 'factual',
+  IRRELEVANT     = 'irrelevant',
+  PENDING        = 'pending',
 }
 
 export enum HITLPriority {

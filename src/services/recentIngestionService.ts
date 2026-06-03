@@ -46,7 +46,7 @@ const LANGUAGE_MAP: Record<string, PostLanguage> = {
 
 const LABEL_MAP: Record<string, ClassificationLabel> = {
   misinformation: ClassificationLabel.MISINFORMATION,
-  disinformation: ClassificationLabel.DISINFORMATION,
+  disinformation: ClassificationLabel.MISINFORMATION,  // treated as misinformation
   factual:        ClassificationLabel.FACTUAL,
   irrelevant:     ClassificationLabel.IRRELEVANT,
 };

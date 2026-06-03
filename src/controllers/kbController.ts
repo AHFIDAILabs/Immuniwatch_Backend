@@ -71,3 +71,11 @@ export async function reindexAll(req: Request, res: Response, next: NextFunction
     res.json(result);
   } catch (err) { next(err); }
 }
+
+export async function getKbStatus(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { getKbStatus: mlGetKbStatus } = await import('../services/mlClient');
+    const status = await mlGetKbStatus();
+    res.json(status);
+  } catch (err) { next(err); }
+}

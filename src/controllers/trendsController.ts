@@ -42,7 +42,7 @@ export async function getTopNarratives(req: Request, res: Response, next: NextFu
         },
       },
       { $unwind: { path: '$classification', preserveNullAndEmptyArrays: false } },
-      { $match: { 'classification.label': { $in: ['misinformation', 'disinformation'] } } },
+      { $match: { 'classification.label': 'misinformation' } },
       {
         $group: {
           _id: {
@@ -105,7 +105,6 @@ export async function getDailyBreakdown(req: Request, res: Response, next: NextF
         date:          key,
         day:           DAY_NAMES[d.getUTCDay()],
         misinformation: 0,
-        disinformation: 0,
         factual:        0,
         irrelevant:     0,
       };
@@ -141,7 +140,7 @@ export async function getDailyMisinformation(req: Request, res: Response, next: 
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     const rows = await Classification.aggregate([
-      { $match: { createdAt: { $gte: since }, label: { $in: ['misinformation', 'disinformation'] } } },
+      { $match: { createdAt: { $gte: since }, label: 'misinformation' } },
       {
         $group: {
           _id:   { $dateToString: { format: '%Y-%m-%d', date: '$createdAt', timezone: 'UTC' } },

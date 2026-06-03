@@ -521,6 +521,67 @@ export function isMockMode(): boolean {
   return config.mlService.mockMode;
 }
 
+// ── ML Knowledge Base (ChromaDB) ──────────────────────────────────────────────
+
+export interface MLKbStatus {
+  ready:          boolean;
+  chunk_count:    number;
+  document_count: number;
+  documents:      Array<{ doc_id: string; title: string; language: string; status: string; url?: string }>;
+}
+
+export interface MLKbUploadResponse {
+  doc_id:         string;
+  title:          string;
+  chunks_indexed: number;
+  status:         string;
+  language:       string;
+  source:         string;
+}
+
+/** GET /knowledge-base/status — ChromaDB readiness + indexed document list */
+export async function getKbStatus(): Promise<MLKbStatus> {
+  try {
+    const { data } = await http.get<MLKbStatus>('/knowledge-base/status', { timeout: 10_000 });
+    return data;
+  } catch (err) {
+    logger.warn(`mlClient.getKbStatus: ${(err as Error).message}`);
+    return { ready: false, chunk_count: 0, document_count: 0, documents: [] };
+  }
+}
+
+/** POST /knowledge-base/upload — index a document into ChromaDB */
+export async function uploadToKbService(doc: {
+  title:    string;
+  content:  string;
+  source:   string;
+  language: string;
+  url?:     string;
+}): Promise<MLKbUploadResponse | null> {
+  if (config.mlService.mockMode) {
+    return { doc_id: `mock-${Date.now()}`, title: doc.title, chunks_indexed: 1, status: 'indexed', language: doc.language, source: doc.source };
+  }
+  try {
+    const { data } = await http.post<MLKbUploadResponse>('/knowledge-base/upload', doc, { timeout: 30_000 });
+    logger.info(`mlClient.uploadToKbService: indexed "${doc.title}" → doc_id=${data.doc_id} chunks=${data.chunks_indexed}`);
+    return data;
+  } catch (err) {
+    logger.warn(`mlClient.uploadToKbService: failed for "${doc.title}": ${(err as Error).message}`);
+    return null;
+  }
+}
+
+/** DELETE /knowledge-base/{doc_id} — remove a document from ChromaDB */
+export async function deleteFromKbService(mlDocId: string): Promise<void> {
+  if (config.mlService.mockMode) return;
+  try {
+    await http.delete(`/knowledge-base/${mlDocId}`, { timeout: 10_000 });
+    logger.info(`mlClient.deleteFromKbService: removed doc_id=${mlDocId}`);
+  } catch (err) {
+    logger.warn(`mlClient.deleteFromKbService: failed for doc_id=${mlDocId}: ${(err as Error).message}`);
+  }
+}
+
 // ── Counter-narrative ─────────────────────────────────────────────────────────
 // These endpoints activate when the ML service team enables them on HuggingFace.
 // Until then every call degrades gracefully: pending returns [], deploy/skip log
