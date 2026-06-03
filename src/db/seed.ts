@@ -13,6 +13,7 @@
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import mongoose from 'mongoose';
+import axios from 'axios';
 
 import { config }          from '../config';
 import { User }            from '../models/User';
@@ -98,18 +99,45 @@ async function seed() {
   await AppSettings.create({ _key: 'platform' });
   logger.info('Platform default settings created');
 
-  // ── Global KB documents ───────────────────────────────────────────────────
+  // ── Global KB documents — seeded into MongoDB AND synced to ML ChromaDB ───
   // No organizationId → visible to all orgs + super_admin
 
-  await KnowledgeBase.create(
-    KB_DOCS.map((d) => ({
+  const ML_BASE = config.mlService.url;
+  const ML_KEY  = config.mlService.apiKey;
+
+  let mlSynced = 0;
+
+  for (const d of KB_DOCS) {
+    // 1. Upload to ML ChromaDB first to get the doc_id
+    let mlDocId: string | undefined;
+    let mlIndexed = false;
+
+    try {
+      const { data: mlResult } = await axios.post(
+        `${ML_BASE}/knowledge-base/upload`,
+        { title: d.title, content: d.content, source: d.source, language: d.language, url: '' },
+        { headers: { 'X-ML-API-Key': ML_KEY, 'Content-Type': 'application/json' }, timeout: 30_000 },
+      );
+      mlDocId   = mlResult.doc_id;
+      mlIndexed = true;
+      mlSynced++;
+      logger.info(`  ✓ ML ChromaDB: "${d.title}" → doc_id=${mlResult.doc_id} chunks=${mlResult.chunks_indexed}`);
+    } catch (err) {
+      logger.warn(`  ✗ ML ChromaDB sync failed for "${d.title}": ${(err as Error).message}`);
+    }
+
+    // 2. Save to MongoDB with mlDocId if sync succeeded
+    await KnowledgeBase.create({
       ...d,
       embedded:        false,
       createdBy:       admin._id,
       embeddingVector: new Array(768).fill(0),
-    })),
-  );
-  logger.info(`Seeded ${KB_DOCS.length} global KB documents`);
+      mlDocId,
+      mlIndexed,
+    });
+  }
+
+  logger.info(`Seeded ${KB_DOCS.length} global KB documents (${mlSynced}/${KB_DOCS.length} synced to ML ChromaDB)`);
 
   logger.info('─────────────────────────────────────────────────────');
   logger.info('Seed complete ✓');

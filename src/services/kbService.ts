@@ -99,43 +99,46 @@ export async function uploadDocument(
   // For demo: treat the buffer as plain text. In production, pass through a PDF/DOCX parser.
   const extractedText = fileBuffer.toString('utf-8').slice(0, 10_000);
 
-  const doc = await KnowledgeBase.create({
-    title:              opts.title,
-    source:             opts.source,
-    language:           opts.language,
-    cloudinaryUrl:      uploadResult.secure_url,
-    cloudinaryPublicId: uploadResult.public_id,
-    content:            extractedText,
-    embedded:           false,
-    createdBy:          opts.uploadedBy,
-  });
+  // Save to MongoDB and POST to ML ChromaDB in parallel — both complete before we return.
+  // This ensures the document shows "Indexed" immediately after upload.
+  const [doc, mlResult] = await Promise.all([
+    KnowledgeBase.create({
+      title:              opts.title,
+      source:             opts.source,
+      language:           opts.language,
+      cloudinaryUrl:      uploadResult.secure_url,
+      cloudinaryPublicId: uploadResult.public_id,
+      content:            extractedText,
+      embedded:           false,
+      mlIndexed:          false,
+      createdBy:          opts.uploadedBy,
+    }),
+    mlClient.uploadToKbService({
+      title:    opts.title,
+      content:  extractedText,
+      source:   opts.source,
+      language: opts.language,
+    }),
+  ]);
+
+  // Store the ML doc_id returned by ChromaDB
+  if (mlResult) {
+    await KnowledgeBase.findByIdAndUpdate(doc._id, {
+      mlDocId:   mlResult.doc_id,
+      mlIndexed: true,
+    });
+    doc.set({ mlDocId: mlResult.doc_id, mlIndexed: true });
+    logger.info(`kbService: doc "${opts.title}" indexed in ChromaDB (doc_id=${mlResult.doc_id}, chunks=${mlResult.chunks_indexed})`);
+  } else {
+    logger.warn(`kbService: ChromaDB sync failed for "${opts.title}" — document saved to MongoDB only`);
+  }
 
   await AuditLog.create({
     actor:        opts.uploadedBy,
     action:       AuditAction.KB_UPLOAD,
     resourceType: 'KnowledgeBase',
     resourceId:   doc._id.toString(),
-    newValue:     { title: opts.title, source: opts.source },
-  });
-
-  // Sync to ML service ChromaDB (non-blocking — don't fail the upload if ML is down)
-  setImmediate(async () => {
-    try {
-      const mlResult = await mlClient.uploadToKbService({
-        title:    opts.title,
-        content:  extractedText,
-        source:   opts.source,
-        language: opts.language,
-      });
-      if (mlResult) {
-        await KnowledgeBase.findByIdAndUpdate(doc._id, {
-          mlDocId:   mlResult.doc_id,
-          mlIndexed: true,
-        });
-      }
-    } catch (err) {
-      logger.warn(`kbService: ML KB sync failed for doc=${doc._id.toString()}: ${(err as Error).message}`);
-    }
+    newValue:     { title: opts.title, source: opts.source, mlIndexed: !!mlResult },
   });
 
   if (opts.immediate) {

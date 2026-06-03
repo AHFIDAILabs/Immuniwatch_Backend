@@ -26,7 +26,13 @@ export async function listDocuments(req: Request, res: Response, next: NextFunct
       KnowledgeBase.countDocuments(filter),
     ]);
 
-    res.json({ data: docs, total, page, limit, totalPages: Math.ceil(total / limit) });
+    // Enrich each doc with a computed status so the frontend always has a clear value
+    const enriched = docs.map((d) => ({
+      ...d,
+      status: (d as { mlIndexed?: boolean }).mlIndexed ? 'ready' : 'not_synced',
+    }));
+
+    res.json({ data: enriched, total, page, limit, totalPages: Math.ceil(total / limit) });
   } catch (err) { next(err); }
 }
 
