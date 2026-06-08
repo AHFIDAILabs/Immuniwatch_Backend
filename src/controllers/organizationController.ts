@@ -118,10 +118,12 @@ export async function createOrganization(req: Request, res: Response, next: Next
       contactEmail: string; phoneNumber?: string; plan?: string;
     };
 
-    const slug = slugify(name);
-    const existing = await Organization.findOne({ slug }).lean();
-    if (existing) throw new AppError(409, 'CONFLICT', `An organization with slug "${slug}" already exists`);
-
+  let slug = slugify(name);
+const existing = await Organization.findOne({ slug }).lean();
+if (existing) {
+  const count = await Organization.countDocuments({ slug: new RegExp(`^${slug}(-\\d+)?$`) });
+  slug = `${slug}-${count}`;
+}
     // Auto-generate the claim token — super admin copies and shares this link
     const token     = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + CLAIM_TTL_DAYS * 24 * 60 * 60 * 1000);
