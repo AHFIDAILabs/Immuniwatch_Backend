@@ -10,6 +10,7 @@ export interface IPost extends Document {
   language:       PostLanguage;
   postedAt?:      Date;
   ingestedAt:     Date;
+  labels?:         string[];
   metadata?:      Record<string, unknown>;
   isProcessed:    boolean;
   archivedAt?:    Date;
@@ -33,6 +34,7 @@ const postSchema = new Schema<IPost>(
       enum: Object.values(PostLanguage),
       required: true,
     },
+    labels: [{ type: String }],
     postedAt: { type: Date },
     ingestedAt: { type: Date, default: Date.now },
     metadata: { type: Schema.Types.Mixed },
