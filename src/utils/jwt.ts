@@ -37,6 +37,6 @@ export function verifyToken(token: string): JwtPayload {
   try {
     return jwt.verify(token, config.jwt.secret) as JwtPayload;
   } catch {
-    throw new AppError(401, 'Invalid or expired token', 'UNAUTHORIZED');
+    throw new AppError(401, 'UNAUTHORIZED', 'Invalid or expired token');
   }
 }

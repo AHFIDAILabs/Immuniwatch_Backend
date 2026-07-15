@@ -54,7 +54,7 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
     // Find active user first
     const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
     if (!user || !(await user.comparePassword(password))) {
-      throw new AppError(401, 'Invalid credentials');
+      throw new AppError(401, 'UNAUTHORIZED', 'Invalid credentials');
     }
 
     // Clear messages for specific account states
@@ -96,13 +96,13 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
 export async function refresh(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const refreshToken = req.cookies?.refresh_token as string | undefined;
-    if (!refreshToken) throw new AppError(401, 'No refresh token');
+    if (!refreshToken) throw new AppError(401, 'UNAUTHORIZED', 'No refresh token');
 
     const payload = verifyToken(refreshToken);
-    if (payload.type !== 'refresh') throw new AppError(401, 'Invalid token type');
+    if (payload.type !== 'refresh') throw new AppError(401, 'UNAUTHORIZED', 'Invalid token type');
 
     const user = await User.findById(payload.sub).select('+refreshToken');
-    if (!user || user.refreshToken !== refreshToken) throw new AppError(401, 'Refresh token revoked');
+    if (!user || user.refreshToken !== refreshToken) throw new AppError(401, 'UNAUTHORIZED', 'Refresh token revoked');
 
     // Session invalidated by admin deactivation
     if (!user.isActive) {
@@ -250,7 +250,7 @@ export async function me(req: Request, res: Response, next: NextFunction): Promi
   try {
     const { user } = req as AuthenticatedRequest;
     const dbUser = await User.findById(user.id).lean();
-    if (!dbUser) throw new AppError(404, 'User not found');
+    if (!dbUser) throw new AppError(404, 'NOT_FOUND', 'User not found');
 
     // Account was deactivated while session was live
     if (!dbUser.isActive) {

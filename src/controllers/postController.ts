@@ -122,7 +122,7 @@ export async function similarCount(
 ) {
   try {
     const { postId } = req.query as { postId?: string };
-    if (!postId) throw new AppError(400, "postId is required");
+    if (!postId) throw new AppError(400, 'BAD_REQUEST', 'postId is required');
 
     const cls = await Classification.findOne({ postId }).lean();
     if (!cls) return res.json({ count: 0, platforms: [] });

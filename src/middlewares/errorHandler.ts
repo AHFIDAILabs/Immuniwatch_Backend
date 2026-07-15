@@ -17,8 +17,9 @@ export function errorHandler(
     return;
   }
 
-  // Mongoose duplicate key
-  if ((err as NodeJS.ErrnoException).code === '11000') {
+  // Mongoose duplicate key (MongoDB code is a number at runtime)
+  const errCode = (err as { code?: unknown }).code;
+  if (errCode === 11000 || errCode === '11000') {
     res.status(409).json({
       success: false,
       code: 'CONFLICT',
@@ -46,5 +47,5 @@ export function errorHandler(
 }
 
 export function notFound(_req: Request, _res: Response, next: NextFunction): void {
-  next(new AppError(404, 'Route not found'));
+  next(new AppError(404, 'NOT_FOUND', 'Route not found'));
 }

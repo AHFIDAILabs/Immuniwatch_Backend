@@ -3,10 +3,10 @@ export class AppError extends Error {
   public readonly code: string;
   public readonly isOperational: boolean;
 
-  constructor(statusCode: number, message: string, code?: string) {
-    super(message);
+  constructor(statusCode: number, code: string, message?: string) {
+    super(message ?? code);
     this.statusCode = statusCode;
-    this.code = code ?? httpCodeToString(statusCode);
+    this.code = code;
     this.isOperational = true;
     Error.captureStackTrace(this, this.constructor);
   }

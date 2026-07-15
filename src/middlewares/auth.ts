@@ -14,11 +14,11 @@ function extractToken(req: Request): string | null {
 
 export function authenticate(req: Request, _res: Response, next: NextFunction): void {
   const token = extractToken(req);
-  if (!token) return next(new AppError(401, 'No token provided', 'UNAUTHORIZED'));
+  if (!token) return next(new AppError(401, 'UNAUTHORIZED', 'No token provided'));
 
   try {
     const payload = verifyToken(token);
-    if (payload.type !== 'access') return next(new AppError(401, 'Invalid token type', 'UNAUTHORIZED'));
+    if (payload.type !== 'access') return next(new AppError(401, 'UNAUTHORIZED', 'Invalid token type'));
     (req as AuthenticatedRequest).user = {
       id:             payload.sub,
       role:           payload.role as UserRole,
@@ -34,7 +34,7 @@ export function authorize(...roles: UserRole[]) {
   return (req: Request, _res: Response, next: NextFunction): void => {
     const authReq = req as AuthenticatedRequest;
     if (!roles.includes(authReq.user.role)) {
-      return next(new AppError(403, 'Insufficient permissions', 'FORBIDDEN'));
+      return next(new AppError(403, 'FORBIDDEN', 'Insufficient permissions'));
     }
     next();
   };

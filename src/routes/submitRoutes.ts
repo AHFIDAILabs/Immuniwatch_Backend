@@ -33,7 +33,7 @@ router.post('/', submitLimiter, async (req: Request, res: Response, next: NextFu
     const result = submitSchema.safeParse(req.body);
     if (!result.success) {
       const msg = result.error.errors.map((e) => e.message).join('; ');
-      throw new AppError(400, msg);
+      throw new AppError(400, 'BAD_REQUEST', msg);
     }
 
     const { content, platformSeen, language, sourceUrl, submitterNote } = result.data;

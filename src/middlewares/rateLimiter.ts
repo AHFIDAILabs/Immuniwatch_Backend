@@ -7,7 +7,7 @@ export const globalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   handler: (_req, _res, next) => {
-    next(new AppError(429, 'Too many requests, please try again later'));
+    next(new AppError(429, 'TOO_MANY_REQUESTS', 'Too many requests, please try again later'));
   },
 });
 
@@ -17,6 +17,6 @@ export const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   handler: (_req, _res, next) => {
-    next(new AppError(429, 'Too many login attempts, please try again later'));
+    next(new AppError(429, 'TOO_MANY_REQUESTS', 'Too many login attempts, please try again later'));
   },
 });

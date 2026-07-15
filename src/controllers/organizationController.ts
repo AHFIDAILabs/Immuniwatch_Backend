@@ -175,6 +175,11 @@ export async function createOrganization(
       plan?: string;
     };
 
+    const nameTaken = await Organization.findOne({
+      name: { $regex: new RegExp(`^${name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+    }).lean();
+    if (nameTaken) throw new AppError(409, 'CONFLICT', `An organization named "${name}" already exists.`);
+
     let slug = slugify(name);
     const existing = await Organization.findOne({ slug }).lean();
     if (existing) {
