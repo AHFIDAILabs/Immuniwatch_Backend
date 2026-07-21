@@ -31,15 +31,20 @@ export async function listReviews(opts: {
   status?:    HITLStatus;
   page:       number;
   limit:      number;
+  sortBy:     string;
+  sortOrder:  'asc' | 'desc';
   orgFilter?: Record<string, unknown>;
 }) {
   const filter: FilterQuery<typeof HITLReview> = { ...(opts.orgFilter ?? {}) };
   if (opts.priority) filter.priority = opts.priority;
   if (opts.status)   filter.status   = opts.status;
 
+  const sortDir = opts.sortOrder === 'asc' ? 1 : -1;
+  const sort: Record<string, 1 | -1> = { priority: -1, [opts.sortBy]: sortDir };
+
   const [items, total] = await Promise.all([
     HITLReview.find(filter)
-      .sort({ priority: -1, createdAt: 1 })
+      .sort(sort)
       .skip((opts.page - 1) * opts.limit)
       .limit(opts.limit)
       .populate('postId classificationId')

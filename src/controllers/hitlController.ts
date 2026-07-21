@@ -1,7 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import mongoose from 'mongoose';
 
-import { HITLPriority, HITLStatus, AuthenticatedRequest, ClassificationLabel } from '../types';
+import { HITLPriority, HITLStatus, AuthenticatedRequest, ClassificationLabel, PaginationQuery } from '../types';
 import { globalOrOrgFilter } from '../middlewares/auth';
 import { HITLReview } from '../models/HITLReview';
 import { User }       from '../models/User';
@@ -94,13 +94,15 @@ export async function getTeamStats(req: Request, res: Response, next: NextFuncti
 
 export async function getQueue(req: Request, res: Response, next: NextFunction) {
   try {
-    const page     = Math.max(1, Number(req.query.page)  || 1);
-    const limit    = Math.min(100, Number(req.query.limit) || 20);
-    const priority = req.query.priority as HITLPriority | undefined;
-    const status   = (req.query.status as HITLStatus | undefined) ?? HITLStatus.PENDING;
+    const page      = Math.max(1, Number(req.query.page)  || 1);
+    const limit     = Math.min(100, Number(req.query.limit) || 20);
+    const priority  = req.query.priority as HITLPriority | undefined;
+    const status    = (req.query.status as HITLStatus | undefined) ?? HITLStatus.PENDING;
+    const sortBy    = (req.query.sortBy as string | undefined) ?? 'createdAt';
+    const sortOrder = (req.query.sortOrder as 'asc' | 'desc' | undefined) ?? 'desc';
 
     const result = await hitlService.listReviews({
-      priority, status, page, limit,
+      priority, status, page, limit, sortBy, sortOrder,
       orgFilter: globalOrOrgFilter(req),
     });
     res.json(result);

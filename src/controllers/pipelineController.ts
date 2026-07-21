@@ -98,27 +98,25 @@ export async function getConnectorStatus(
     const oneHourAgo = new Date(Date.now() - 60 * 60_000);
     const twoHrAgo   = new Date(Date.now() - 2 * 60 * 60_000);
 
-    // Count events per minute and last event time for each live platform
     const [
       ytPerMin,   ytLast,
       bsPerMin,   bsLast,
       subPerMin,  subLast,
+      twPerMin,   twLast,
     ] = await Promise.all([
-      Post.countDocuments({ platform: PostPlatform.YOUTUBE,    ingestedAt: { $gte: oneMinAgo  } }),
+      Post.countDocuments({ platform: PostPlatform.YOUTUBE,    ingestedAt: { $gte: oneMinAgo } }),
       Post.findOne({ platform: PostPlatform.YOUTUBE    }).sort({ ingestedAt: -1 }).select('ingestedAt').lean(),
-      Post.countDocuments({ platform: PostPlatform.BLUESKY,    ingestedAt: { $gte: oneMinAgo  } }),
+      Post.countDocuments({ platform: PostPlatform.BLUESKY,    ingestedAt: { $gte: oneMinAgo } }),
       Post.findOne({ platform: PostPlatform.BLUESKY    }).sort({ ingestedAt: -1 }).select('ingestedAt').lean(),
-      Post.countDocuments({ platform: PostPlatform.SUBMISSION, ingestedAt: { $gte: oneMinAgo  } }),
+      Post.countDocuments({ platform: PostPlatform.SUBMISSION, ingestedAt: { $gte: oneMinAgo } }),
       Post.findOne({ platform: PostPlatform.SUBMISSION }).sort({ ingestedAt: -1 }).select('ingestedAt').lean(),
+      Post.countDocuments({ platform: PostPlatform.TWITTER,    ingestedAt: { $gte: oneMinAgo } }),
+      Post.findOne({ platform: PostPlatform.TWITTER    }).sort({ ingestedAt: -1 }).select('ingestedAt').lean(),
     ]);
 
     const ts = (doc: unknown) =>
       doc ? (doc as { ingestedAt: Date }).ingestedAt.toISOString() : '';
 
-    // Three-state logic so we don't conflate "no data yet" with "had data then stopped":
-    //   active   — posts seen in the last hour (connector is feeding data normally)
-    //   degraded — posts exist but none in the last 2 hours (connector was working, now silent)
-    //   waiting  — no posts ever (fresh install / ingestion hasn't run yet)
     const connectorStatus = async (platform: PostPlatform): Promise<'active' | 'degraded' | 'waiting'> => {
       const inLastHour = await Post.countDocuments({ platform, ingestedAt: { $gte: oneHourAgo } });
       if (inLastHour > 0) return 'active';
@@ -128,9 +126,10 @@ export async function getConnectorStatus(
       return anyEver > 0 ? 'degraded' : 'waiting';
     };
 
-    const [ytStatus, bsStatus] = await Promise.all([
+    const [ytStatus, bsStatus, twStatus] = await Promise.all([
       connectorStatus(PostPlatform.YOUTUBE),
       connectorStatus(PostPlatform.BLUESKY),
+      connectorStatus(PostPlatform.TWITTER),
     ]);
 
     res.json([
@@ -153,11 +152,10 @@ export async function getConnectorStatus(
       {
         name:         'Twitter/X',
         platform:     'twitter',
-        status:       'not_integrated',
-        eventsPerMin: 0,
-        lastEventAt:  '',
+        status:       twStatus,
+        eventsPerMin: twPerMin,
+        lastEventAt:  ts(twLast),
         errorRate:    0,
-        note:         'Phase 2 — REST connector not yet wired',
       },
       {
         name:         'Facebook',
