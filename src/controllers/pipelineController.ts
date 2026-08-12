@@ -94,36 +94,72 @@ export async function getConnectorStatus(
   next: NextFunction,
 ) {
   try {
-    const oneMinAgo  = new Date(Date.now() - 60_000);
+    const oneMinAgo = new Date(Date.now() - 60_000);
     const oneHourAgo = new Date(Date.now() - 60 * 60_000);
-    const twoHrAgo   = new Date(Date.now() - 2 * 60 * 60_000);
+    const twoHrAgo = new Date(Date.now() - 2 * 60 * 60_000);
 
     const [
-      ytPerMin,   ytLast,
-      bsPerMin,   bsLast,
-      subPerMin,  subLast,
-      twPerMin,   twLast,
+      ytPerMin,
+      ytLast,
+      bsPerMin,
+      bsLast,
+      subPerMin,
+      subLast,
+      twPerMin,
+      twLast,
     ] = await Promise.all([
-      Post.countDocuments({ platform: PostPlatform.YOUTUBE,    ingestedAt: { $gte: oneMinAgo } }),
-      Post.findOne({ platform: PostPlatform.YOUTUBE    }).sort({ ingestedAt: -1 }).select('ingestedAt').lean(),
-      Post.countDocuments({ platform: PostPlatform.BLUESKY,    ingestedAt: { $gte: oneMinAgo } }),
-      Post.findOne({ platform: PostPlatform.BLUESKY    }).sort({ ingestedAt: -1 }).select('ingestedAt').lean(),
-      Post.countDocuments({ platform: PostPlatform.SUBMISSION, ingestedAt: { $gte: oneMinAgo } }),
-      Post.findOne({ platform: PostPlatform.SUBMISSION }).sort({ ingestedAt: -1 }).select('ingestedAt').lean(),
-      Post.countDocuments({ platform: PostPlatform.TWITTER,    ingestedAt: { $gte: oneMinAgo } }),
-      Post.findOne({ platform: PostPlatform.TWITTER    }).sort({ ingestedAt: -1 }).select('ingestedAt').lean(),
+      Post.countDocuments({
+        platform: PostPlatform.YOUTUBE,
+        ingestedAt: { $gte: oneMinAgo },
+      }),
+      Post.findOne({ platform: PostPlatform.YOUTUBE })
+        .sort({ ingestedAt: -1 })
+        .select("ingestedAt")
+        .lean(),
+      Post.countDocuments({
+        platform: PostPlatform.BLUESKY,
+        ingestedAt: { $gte: oneMinAgo },
+      }),
+      Post.findOne({ platform: PostPlatform.BLUESKY })
+        .sort({ ingestedAt: -1 })
+        .select("ingestedAt")
+        .lean(),
+      Post.countDocuments({
+        platform: PostPlatform.SUBMISSION,
+        ingestedAt: { $gte: oneMinAgo },
+      }),
+      Post.findOne({ platform: PostPlatform.SUBMISSION })
+        .sort({ ingestedAt: -1 })
+        .select("ingestedAt")
+        .lean(),
+      Post.countDocuments({
+        platform: PostPlatform.TWITTER,
+        ingestedAt: { $gte: oneMinAgo },
+      }),
+      Post.findOne({ platform: PostPlatform.TWITTER })
+        .sort({ ingestedAt: -1 })
+        .select("ingestedAt")
+        .lean(),
     ]);
 
     const ts = (doc: unknown) =>
-      doc ? (doc as { ingestedAt: Date }).ingestedAt.toISOString() : '';
+      doc ? (doc as { ingestedAt: Date }).ingestedAt.toISOString() : "";
 
-    const connectorStatus = async (platform: PostPlatform): Promise<'active' | 'degraded' | 'waiting'> => {
-      const inLastHour = await Post.countDocuments({ platform, ingestedAt: { $gte: oneHourAgo } });
-      if (inLastHour > 0) return 'active';
-      const inLast2h = await Post.countDocuments({ platform, ingestedAt: { $gte: twoHrAgo } });
-      if (inLast2h > 0) return 'degraded';
-      const anyEver  = await Post.countDocuments({ platform }).limit(1);
-      return anyEver > 0 ? 'degraded' : 'waiting';
+    const connectorStatus = async (
+      platform: PostPlatform,
+    ): Promise<"active" | "degraded" | "waiting"> => {
+      const inLastHour = await Post.countDocuments({
+        platform,
+        ingestedAt: { $gte: oneHourAgo },
+      });
+      if (inLastHour > 0) return "active";
+      const inLast2h = await Post.countDocuments({
+        platform,
+        ingestedAt: { $gte: twoHrAgo },
+      });
+      if (inLast2h > 0) return "degraded";
+      const anyEver = await Post.countDocuments({ platform }).limit(1);
+      return anyEver > 0 ? "degraded" : "waiting";
     };
 
     const [ytStatus, bsStatus, twStatus] = await Promise.all([
@@ -134,45 +170,45 @@ export async function getConnectorStatus(
 
     res.json([
       {
-        name:         'YouTube',
-        platform:     'youtube',
-        status:       ytStatus,
+        name: "YouTube",
+        platform: "youtube",
+        status: ytStatus,
         eventsPerMin: ytPerMin,
-        lastEventAt:  ts(ytLast),
-        errorRate:    0,
+        lastEventAt: ts(ytLast),
+        errorRate: 0,
       },
       {
-        name:         'Bluesky',
-        platform:     'bluesky',
-        status:       bsStatus,
+        name: "Bluesky",
+        platform: "bluesky",
+        status: bsStatus,
         eventsPerMin: bsPerMin,
-        lastEventAt:  ts(bsLast),
-        errorRate:    0,
+        lastEventAt: ts(bsLast),
+        errorRate: 0,
       },
       {
-        name:         'Twitter/X',
-        platform:     'twitter',
-        status:       twStatus,
+        name: "Twitter/X",
+        platform: "twitter",
+        status: twStatus,
         eventsPerMin: twPerMin,
-        lastEventAt:  ts(twLast),
-        errorRate:    0,
+        lastEventAt: ts(twLast),
+        errorRate: 0,
       },
       {
-        name:         'Facebook',
-        platform:     'facebook',
-        status:       'not_integrated',
+        name: "Facebook",
+        platform: "facebook",
+        status: "not_integrated",
         eventsPerMin: 0,
-        lastEventAt:  '',
-        errorRate:    0,
-        note:         'Phase 2 — REST connector not yet wired',
+        lastEventAt: "",
+        errorRate: 0,
+        note: "Phase 2 — REST connector not yet wired",
       },
       {
-        name:         'Submissions',
-        platform:     'submission',
-        status:       'active',
+        name: "Submissions",
+        platform: "submission",
+        status: "active",
         eventsPerMin: subPerMin,
-        lastEventAt:  ts(subLast),
-        errorRate:    0,
+        lastEventAt: ts(subLast),
+        errorRate: 0,
       },
     ]);
   } catch (err) {
