@@ -16,6 +16,7 @@ export enum PostPlatform {
   FACEBOOK   = 'facebook',
   YOUTUBE    = 'youtube',
   BLUESKY    = 'bluesky',
+  INSTAGRAM  = 'instagram',
   SUBMISSION = 'submission',
 }
 

@@ -33,6 +33,7 @@ const PLATFORM_MAP: Record<string, PostPlatform> = {
   bluesky:    PostPlatform.BLUESKY,
   twitter:    PostPlatform.TWITTER,
   facebook:   PostPlatform.FACEBOOK,
+  instagram:  PostPlatform.INSTAGRAM,
   submission: PostPlatform.SUBMISSION,
 };
 

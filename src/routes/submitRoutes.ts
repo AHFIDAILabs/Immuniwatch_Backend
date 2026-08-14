@@ -7,7 +7,7 @@ import { classifyPost } from '../services/classificationService';
 import { publishRawPost } from '../utils/kafkaProducer';
 
 const PostLanguage = z.enum(['en', 'pcm', 'ha', 'yo', 'ig']);
-const PostPlatform = z.enum(['twitter', 'facebook', 'youtube', 'submission']);
+const PostPlatform = z.enum(['twitter', 'facebook', 'youtube', 'bluesky', 'instagram', 'submission']);
 
 const submitSchema = z.object({
   content:      z.string().min(10, 'Please provide at least 10 characters').max(5_000),

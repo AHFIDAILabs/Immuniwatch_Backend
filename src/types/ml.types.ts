@@ -22,6 +22,7 @@ export enum MLPlatform {
   TWITTER    = "twitter",
   FACEBOOK   = "facebook",
   YOUTUBE    = "youtube",
+  INSTAGRAM  = "instagram",
   BLUESKY    = "bluesky",
   SUBMISSION = "submission",
 }

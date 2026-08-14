@@ -42,6 +42,7 @@ const PLATFORM_MAP: Record<PostPlatform, MLPlatform> = {
   [PostPlatform.FACEBOOK]:   MLPlatform.FACEBOOK,
   [PostPlatform.YOUTUBE]:    MLPlatform.YOUTUBE,
   [PostPlatform.BLUESKY]:    MLPlatform.BLUESKY,
+  [PostPlatform.INSTAGRAM]:  MLPlatform.INSTAGRAM,
   [PostPlatform.SUBMISSION]: MLPlatform.SUBMISSION,
 };
 

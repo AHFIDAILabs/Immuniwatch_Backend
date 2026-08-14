@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 // ── Shared enums ──────────────────────────────────────────────────────────────
 
-const PostPlatform   = z.enum(['twitter', 'facebook', 'youtube', 'submission']);
+const PostPlatform   = z.enum(['twitter', 'facebook', 'youtube', 'bluesky', 'instagram', 'submission']);
 const PostLanguage   = z.enum(['en', 'pcm', 'ha', 'yo', 'ig']);
 const UserRole       = z.enum(['analyst', 'senior_analyst', 'supervisor', 'super_admin']);
 const ClassificationLabel = z.enum(['misinformation', 'factual', 'irrelevant', 'pending']);

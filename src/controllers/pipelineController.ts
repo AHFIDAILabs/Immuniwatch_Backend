@@ -98,48 +98,25 @@ export async function getConnectorStatus(
     const oneHourAgo = new Date(Date.now() - 60 * 60_000);
     const twoHrAgo = new Date(Date.now() - 2 * 60 * 60_000);
 
+    const epm = (platform: PostPlatform) =>
+      Post.countDocuments({ platform, ingestedAt: { $gte: oneMinAgo } });
+    const last = (platform: PostPlatform) =>
+      Post.findOne({ platform }).sort({ ingestedAt: -1 }).select("ingestedAt").lean();
+
     const [
-      ytPerMin,
-      ytLast,
-      bsPerMin,
-      bsLast,
-      subPerMin,
-      subLast,
-      twPerMin,
-      twLast,
+      ytPerMin,   ytLast,
+      bsPerMin,   bsLast,
+      twPerMin,   twLast,
+      fbPerMin,   fbLast,
+      igPerMin,   igLast,
+      subPerMin,  subLast,
     ] = await Promise.all([
-      Post.countDocuments({
-        platform: PostPlatform.YOUTUBE,
-        ingestedAt: { $gte: oneMinAgo },
-      }),
-      Post.findOne({ platform: PostPlatform.YOUTUBE })
-        .sort({ ingestedAt: -1 })
-        .select("ingestedAt")
-        .lean(),
-      Post.countDocuments({
-        platform: PostPlatform.BLUESKY,
-        ingestedAt: { $gte: oneMinAgo },
-      }),
-      Post.findOne({ platform: PostPlatform.BLUESKY })
-        .sort({ ingestedAt: -1 })
-        .select("ingestedAt")
-        .lean(),
-      Post.countDocuments({
-        platform: PostPlatform.SUBMISSION,
-        ingestedAt: { $gte: oneMinAgo },
-      }),
-      Post.findOne({ platform: PostPlatform.SUBMISSION })
-        .sort({ ingestedAt: -1 })
-        .select("ingestedAt")
-        .lean(),
-      Post.countDocuments({
-        platform: PostPlatform.TWITTER,
-        ingestedAt: { $gte: oneMinAgo },
-      }),
-      Post.findOne({ platform: PostPlatform.TWITTER })
-        .sort({ ingestedAt: -1 })
-        .select("ingestedAt")
-        .lean(),
+      epm(PostPlatform.YOUTUBE),    last(PostPlatform.YOUTUBE),
+      epm(PostPlatform.BLUESKY),    last(PostPlatform.BLUESKY),
+      epm(PostPlatform.TWITTER),    last(PostPlatform.TWITTER),
+      epm(PostPlatform.FACEBOOK),   last(PostPlatform.FACEBOOK),
+      epm(PostPlatform.INSTAGRAM),  last(PostPlatform.INSTAGRAM),
+      epm(PostPlatform.SUBMISSION), last(PostPlatform.SUBMISSION),
     ]);
 
     const ts = (doc: unknown) =>
@@ -162,10 +139,12 @@ export async function getConnectorStatus(
       return anyEver > 0 ? "degraded" : "waiting";
     };
 
-    const [ytStatus, bsStatus, twStatus] = await Promise.all([
+    const [ytStatus, bsStatus, twStatus, fbStatus, igStatus] = await Promise.all([
       connectorStatus(PostPlatform.YOUTUBE),
       connectorStatus(PostPlatform.BLUESKY),
       connectorStatus(PostPlatform.TWITTER),
+      connectorStatus(PostPlatform.FACEBOOK),
+      connectorStatus(PostPlatform.INSTAGRAM),
     ]);
 
     res.json([
@@ -196,11 +175,18 @@ export async function getConnectorStatus(
       {
         name: "Facebook",
         platform: "facebook",
-        status: "not_integrated",
-        eventsPerMin: 0,
-        lastEventAt: "",
+        status: fbStatus,
+        eventsPerMin: fbPerMin,
+        lastEventAt: ts(fbLast),
         errorRate: 0,
-        note: "Phase 2 — REST connector not yet wired",
+      },
+      {
+        name: "Instagram",
+        platform: "instagram",
+        status: igStatus,
+        eventsPerMin: igPerMin,
+        lastEventAt: ts(igLast),
+        errorRate: 0,
       },
       {
         name: "Submissions",
