@@ -203,6 +203,8 @@ export async function getConnectorStatus(
 }
 
 // ── GET /pipeline/recent ──────────────────────────────────────────────────────
+// Queries MongoDB instead of the ML service in-memory buffer so posts survive
+// Space restarts and all platforms (including Instagram) appear correctly.
 
 export async function getRecentFeed(
   _req: Request,
@@ -210,8 +212,49 @@ export async function getRecentFeed(
   next: NextFunction,
 ) {
   try {
-    const feed = await mlClient.getRecentPosts();
-    res.json(feed);
+    const [posts, totalCount] = await Promise.all([
+      Post.aggregate([
+        { $sort: { ingestedAt: -1 } },
+        { $limit: 50 },
+        {
+          $lookup: {
+            from:         'classifications',
+            localField:   '_id',
+            foreignField: 'postId',
+            as:           'cls',
+          },
+        },
+        {
+          $project: {
+            _id:             0,
+            post_id:         { $ifNull: ['$externalId', { $toString: '$_id' }] },
+            content_snippet: { $substr: ['$content', 0, 280] },
+            platform:        1,
+            language:        1,
+            classified_at:   {
+              $ifNull: [{ $arrayElemAt: ['$cls.createdAt', 0] }, '$ingestedAt'],
+            },
+            label:           {
+              $ifNull: [{ $arrayElemAt: ['$cls.label', 0] }, 'pending'],
+            },
+            confidence:      {
+              $ifNull: [{ $arrayElemAt: ['$cls.confidence', 0] }, 0],
+            },
+            entropy:         {
+              $ifNull: [{ $arrayElemAt: ['$cls.entropy', 0] }, 0],
+            },
+            state:           { $literal: null },
+          },
+        },
+      ]),
+      Post.countDocuments(),
+    ]);
+
+    res.json({
+      posts,
+      count:             posts.length,
+      total_since_start: totalCount,
+    });
   } catch (err) {
     next(err);
   }
